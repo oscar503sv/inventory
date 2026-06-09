@@ -24,6 +24,12 @@ Clean Architecture + Modular Monolith. Dependency direction:
 
 **Bounded contexts (Phase 1):** Identity, Catalog, Warehouses, Inventory, Audit.
 
+## Project status
+
+Foundation + **Phase 1 backend** implemented and tested (41 tests, clean build). Phases 2–4 and the
+frontend are not started. See **[docs/project.md](docs/project.md)** for the detailed status of what
+is done and what is pending.
+
 ## Core principles
 
 - **ADR-001** Stock is never edited directly — only through inventory movements (Entry/Exit/Transfer/Adjustment).
