@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Inventory.API/Inventory.API.csproj" />
+    <Project Path="src/Inventory.Application/Inventory.Application.csproj" />
+    <Project Path="src/Inventory.Domain/Inventory.Domain.csproj" />
+    <Project Path="src/Inventory.Infrastructure/Inventory.Infrastructure.csproj" />
+    <Project Path="src/Inventory.Persistence/Inventory.Persistence.csproj" />
+    <Project Path="src/Shared.Authorization/Shared.Authorization.csproj" />
+    <Project Path="src/Shared.Contracts/Shared.Contracts.csproj" />
+    <Project Path="src/Shared.Events/Shared.Events.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Inventory.Application.Tests/Inventory.Application.Tests.csproj" />
+    <Project Path="tests/Inventory.Authorization.Tests/Inventory.Authorization.Tests.csproj" />
+    <Project Path="tests/Inventory.Domain.Tests/Inventory.Domain.Tests.csproj" />
+  </Folder>
+</Solution>

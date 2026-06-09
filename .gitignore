@@ -1,0 +1,31 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+artifacts/
+[Tt]est[Rr]esults/
+*.coverage
+*.trx
+coverage/
+TestResults/
+
+# Rider / VS Code
+.idea/
+.vscode/
+
+# Node / Frontend (future)
+node_modules/
+dist/
+.env
+.env.local
+*.local
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Secrets
+appsettings.*.local.json
+*.pfx
