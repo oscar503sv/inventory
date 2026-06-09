@@ -1,0 +1,88 @@
+using Inventory.Domain.Common;
+using Inventory.Domain.Inventory.Events;
+
+namespace Inventory.Domain.Inventory;
+
+/// <summary>
+/// Stock of a product in a single warehouse. This is a projection: it is only ever mutated as the
+/// result of applying an inventory movement, never edited directly (ADR-001, ADR-002).
+/// Negative stock is not allowed.
+/// </summary>
+public sealed class Stock : AggregateRoot
+{
+    public Guid ProductId { get; private set; }
+    public Guid WarehouseId { get; private set; }
+    public decimal Quantity { get; private set; }
+    public decimal ReservedQuantity { get; private set; }
+
+    /// <summary>AvailableQuantity = Quantity - ReservedQuantity.</summary>
+    public decimal AvailableQuantity => Quantity - ReservedQuantity;
+
+    private Stock() { }
+
+    public Stock(Guid productId, Guid warehouseId)
+    {
+        ProductId = productId;
+        WarehouseId = warehouseId;
+        Quantity = 0m;
+        ReservedQuantity = 0m;
+    }
+
+    public void Increase(decimal amount)
+    {
+        if (amount <= 0)
+            throw new DomainException("Increase amount must be positive.");
+
+        Quantity += amount;
+    }
+
+    public void Decrease(decimal amount)
+    {
+        if (amount <= 0)
+            throw new DomainException("Decrease amount must be positive.");
+        if (Quantity - amount < 0)
+            throw new DomainException("Negative stock is not allowed.");
+        if (Quantity - amount < ReservedQuantity)
+            throw new DomainException("Cannot reduce stock below the reserved quantity.");
+
+        Quantity -= amount;
+    }
+
+    /// <summary>Sets the physical quantity to an absolute value (used by adjustments).</summary>
+    public void AdjustTo(decimal newQuantity)
+    {
+        if (newQuantity < 0)
+            throw new DomainException("Negative stock is not allowed.");
+        if (newQuantity < ReservedQuantity)
+            throw new DomainException("Cannot adjust stock below the reserved quantity.");
+
+        Quantity = newQuantity;
+    }
+
+    public void Reserve(decimal amount)
+    {
+        if (amount <= 0)
+            throw new DomainException("Reserve amount must be positive.");
+        if (ReservedQuantity + amount > Quantity)
+            throw new DomainException("Cannot reserve more than the available quantity.");
+
+        ReservedQuantity += amount;
+    }
+
+    public void Release(decimal amount)
+    {
+        if (amount <= 0)
+            throw new DomainException("Release amount must be positive.");
+        if (ReservedQuantity - amount < 0)
+            throw new DomainException("Cannot release more than the reserved quantity.");
+
+        ReservedQuantity -= amount;
+    }
+
+    /// <summary>Raises <see cref="StockBelowMinimumDomainEvent"/> when the quantity drops below the product minimum.</summary>
+    public void CheckMinimum(decimal minimumStock)
+    {
+        if (minimumStock > 0 && Quantity < minimumStock)
+            Raise(new StockBelowMinimumDomainEvent(ProductId, WarehouseId, Quantity, minimumStock));
+    }
+}

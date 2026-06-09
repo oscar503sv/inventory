@@ -1,0 +1,16 @@
+namespace Inventory.Domain.Common;
+
+/// <summary>
+/// An aggregate root. Collects domain events that are dispatched by the persistence layer once
+/// the unit of work is committed.
+/// </summary>
+public abstract class AggregateRoot : Entity
+{
+    private readonly List<IDomainEvent> _domainEvents = new();
+
+    public IReadOnlyCollection<IDomainEvent> DomainEvents => _domainEvents.AsReadOnly();
+
+    protected void Raise(IDomainEvent domainEvent) => _domainEvents.Add(domainEvent);
+
+    public void ClearDomainEvents() => _domainEvents.Clear();
+}
