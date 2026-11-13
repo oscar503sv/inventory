@@ -12,6 +12,13 @@ public sealed class UserPermissionOverride : Entity
     public Guid PermissionId { get; private set; }
     public OverrideType OverrideType { get; private set; }
 
+    public void ChangeType(OverrideType overrideType)
+    {
+        if (!Enum.IsDefined(overrideType))
+            throw new DomainException("Invalid permission override type.");
+        OverrideType = overrideType;
+    }
+
     private UserPermissionOverride() { }
 
     public UserPermissionOverride(Guid userId, Guid permissionId, OverrideType overrideType)

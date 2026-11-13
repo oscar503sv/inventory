@@ -4,7 +4,7 @@ Fecha de planificación: 2026-11-12.
 
 Objetivo: cerrar y validar la fase 1 del backend, construir una interfaz operativa y avanzar después con compras y reportes.
 
-Este documento reúne el estado histórico, los pendientes y la planificación acordada. Los puntos 1 y 2 están implementados y validados localmente; los puntos 3–6 siguen pendientes. Las casillas y la evidencia indican el estado comprobado de cada tarea. Los requisitos se mantienen en [producto.md](producto.md) y las decisiones técnicas en [arquitectura.md](arquitectura.md).
+Este documento reúne el estado histórico, los pendientes y la planificación acordada. Los puntos 1, 2 y 3 están implementados y validados localmente; los puntos 4–6 siguen pendientes. Las casillas y la evidencia indican el estado comprobado de cada tarea. Los requisitos se mantienen en [producto.md](producto.md) y las decisiones técnicas en [arquitectura.md](arquitectura.md).
 
 Consolidación documental: 2026-11-12. El contenido de `docs/project.md` se integró aquí; las instrucciones de ejecución están en el [README](../README.md).
 
@@ -12,7 +12,7 @@ Consolidación documental: 2026-11-12. El contenido de `docs/project.md` se inte
 
 El estado histórico del 2026-06-08 reporta la base y gran parte del backend de fase 1 implementadas: 41 pruebas aprobadas (Domain 27, Authorization 7, Application 7), compilación sin advertencias ni errores y pruebas de aplicación con EF en memoria. Es evidencia documental anterior; no se volvieron a ejecutar esas comprobaciones al consolidar estos archivos.
 
-La revisión de código del 2026-11-12 identificó los problemas de autorización, auditoría y concurrencia detallados en el paso 2. Se corrigieron y validaron localmente ese mismo día: **76 pruebas aprobadas** (Domain 28, Authorization 7, Application 7, API/PostgreSQL 34), compilación Release sin advertencias ni errores. La validación incluye acceso por bodega, auditoría sin credenciales, idempotencia, errores y concurrencia sobre PostgreSQL real. Quedan pendientes las funciones de los puntos 3–6; esto no equivale al cierre de toda la fase 1 ni a una validación de producción.
+La revisión de código del 2026-11-12 identificó los problemas de autorización, auditoría y concurrencia detallados en el paso 2. Se corrigieron y validaron localmente ese mismo día: **76 pruebas aprobadas** (Domain 28, Authorization 7, Application 7, API/PostgreSQL 34), compilación Release sin advertencias ni errores. La validación incluye acceso por bodega, auditoría sin credenciales, idempotencia, errores y concurrencia sobre PostgreSQL real. El punto 3 agrega administración de accesos y sesiones (véase su evidencia de cierre). Quedan pendientes las funciones de los puntos 4–6; esto no equivale al cierre de toda la fase 1 ni a una validación de producción.
 
 ### Funciones documentadas en la fase 1
 
@@ -72,10 +72,10 @@ La revisión de código del 2026-11-12 identificó los problemas de autorizació
 
 ### Límites actuales
 
-- Usuarios: creación y listado; administración completa de roles, excepciones y alcances pendiente.
+- Usuarios: creación, listado, edición, activación/desactivación y administración de roles, excepciones y alcances disponibles; véase el punto 3.
 - Auditoría: escritura mediante interceptor con propiedades permitidas y limpieza de campos sensibles históricos; falta la consulta operativa.
 - Reservas: `ReservedQuantity` y operaciones Reserve/Release en el dominio, sin casos de uso ni endpoints.
-- Sesiones: sin logout ni endpoint de revocación, ni blacklist JWT en Redis.
+- Sesiones: logout y revocación administrativa de refresh tokens disponibles. Los JWT conservan su vencimiento y verifican usuario activo y permisos actuales; sin blacklist en Redis.
 - `/health` comprueba que el proceso está activo; falta verificar disponibilidad de dependencias.
 - Redis y RabbitMQ están provisionados en Docker, pero no integrados funcionalmente. El despachador de eventos registra mensajes en el proceso.
 - `Shared.Events` es un espacio reservado para la fase 3.
@@ -159,21 +159,32 @@ La revisión inicial identificó consultas de stock y kardex sin comprobación d
 - Migración incluida: `20261113035606_InventoryIntegrity`. Agrega versiones, idempotencia e índices únicos y `LedgerSequence` para el kardex. Se prueba una actualización desde la migración inicial con datos existentes: conserva el orden histórico, limpia auditoría y continúa la secuencia. Otra prueba confirma saldos correctos aunque el reloj retroceda. El modelo EF coincide con las migraciones.
 - El contrato y los reintentos están documentados en el [README](../README.md#contrato-de-movimientos-e-integridad) y las decisiones en [arquitectura.md](arquitectura.md#integridad-de-movimientos--punto-2). El workflow existente ejecuta la misma validación en GitHub; esta evidencia corresponde a la ejecución local.
 
-**Primera entrega completada localmente:** puntos 1 y 2 cerrados. El siguiente trabajo corresponde al punto 3; los puntos 3–6 mantienen sus pendientes.
+**Primera entrega completada localmente:** puntos 1 y 2 cerrados. El punto 3 se documenta a continuación; los puntos 4–6 mantienen sus pendientes.
 
 ## 3. Completar usuarios, permisos y sesiones
 
-- [ ] Implementar edición, activación y desactivación de usuarios.
-- [ ] Completar las operaciones de dominio y API para asignar y retirar roles.
-- [ ] Permitir agregar, modificar y retirar excepciones de permisos Allow/Deny.
-- [ ] Permitir otorgar y retirar acceso a bodegas, incluido el acceso global.
-- [ ] Validar los identificadores de roles, permisos y bodegas recibidos.
-- [ ] Agregar consulta del usuario actual y sus permisos efectivos para la interfaz.
-- [ ] Implementar cierre de sesión y revocación de refresh tokens.
-- [ ] Definir el alcance de la revocación y el comportamiento de los tokens de acceso después del cierre de sesión.
-- [ ] Probar rotación, revocación, desactivación de usuarios y aplicación de cambios de permisos.
+- [x] Implementar edición, activación y desactivación de usuarios.
+- [x] Completar las operaciones de dominio y API para asignar y retirar roles.
+- [x] Permitir agregar, modificar y retirar excepciones de permisos Allow/Deny.
+- [x] Permitir otorgar y retirar acceso a bodegas, incluido el acceso global.
+- [x] Validar los identificadores de roles, permisos y bodegas recibidos.
+- [x] Agregar consulta del usuario actual y sus permisos efectivos para la interfaz.
+- [x] Implementar cierre de sesión y revocación de refresh tokens.
+- [x] Definir el alcance de la revocación y el comportamiento de los tokens de acceso después del cierre de sesión.
+- [x] Probar rotación, revocación, desactivación de usuarios y aplicación de cambios de permisos.
 
 **Criterio de finalización:** un administrador puede gestionar accesos desde la API; los cambios y la revocación de sesiones se aplican conforme a una política explícita y comprobada mediante pruebas.
+
+### Evidencia de cierre — 2026-11-12
+
+- `bash scripts/validate.sh` completado: **87 pruebas aprobadas, 0 fallidas, 0 omitidas** (Domain 28, Authorization 7, Application 7, API/PostgreSQL 45), compilación Release con **0 advertencias y 0 errores**. Once casos nuevos de administración y sesiones. Verificación de formato .NET sobre archivos modificados y `git diff --check` correctos. Resultados TRX en `TestResults/`.
+- Implementado en `dev`, sin dependencias nuevas ni cambios de esquema, infraestructura o CI.
+- Edición y estado de usuarios mediante `PUT /users/{id}`; reemplazo completo e idempotente de roles, excepciones y alcances mediante `PUT /users/{id}/access`. Retirar asignaciones usa listas vacías. Las excepciones existentes se actualizan conservando su identidad; EF registra explícitamente las asignaciones nuevas.
+- Referencias de roles, permisos y bodegas validadas antes de modificar datos; validación compartida con creación. Datos inválidos devuelven `400`, referencias inexistentes `404` y correos duplicados `409`. La administración de accesos y creación exigen `users.manage` y `roles.manage`.
+- Consulta de accesos administrativos, catálogo paginado de permisos y `GET /users/me` con permisos efectivos mediante el motor compartido. Roles, Allow/Deny y alcances se aplican a solicitudes con JWT ya emitidos.
+- `POST /auth/logout` revoca todos los refresh tokens del usuario autenticado; `DELETE /users/{id}/sessions` permite revocación administrativa. Desactivar revoca refresh tokens y bloquea los JWT en cada autenticación. Reactivar no restaura refresh tokens revocados.
+- Política explícita y contratos documentados en el [README](../README.md#administración-de-usuarios-y-sesiones-punto-3): los JWT siguen vigentes hasta expirar para usuarios activos, incluso después de logout; vuelven a aceptarse al reactivar si aún no vencieron. No se implementa blacklist.
+- Pruebas HTTP/PostgreSQL para edición, errores de perfil, asignación y retirada de roles, modificación y retirada de excepciones, alcances individuales/globales, aplicación inmediata de permisos, rechazo de referencias inexistentes, rotación, logout, revocación administrativa, desactivación/reactivación y tokens vencidos. Las bases de pruebas siguen siendo aisladas.
 
 ## 4. Completar auditoría y consultas operativas
 

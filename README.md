@@ -73,3 +73,28 @@ Cada producto puede aparecer una sola vez en un movimiento; los duplicados y las
 La migración `InventoryIntegrity` incorpora versiones de stock, la unicidad de claves por usuario y una secuencia para reconstruir el kardex independientemente del reloj de las solicitudes. Conserva el orden histórico anterior y limpia campos de contraseñas, hashes y tokens previamente guardados en auditoría. Esta limpieza de datos sensibles es irreversible; la auditoría nueva usa una lista explícita de propiedades permitidas.
 
 La suite PostgreSQL incluye aislamiento por bodega, Allow/Deny, limpieza de auditoría, actualización de una base existente, movimientos simultáneos, reintentos y errores en ajustes y transferencias. Las pruebas coordinan dos solicitudes antes de guardar para comprobar conflictos reales, tanto con stock existente como al crearlo. El límite de solicitudes se desactiva solo en el servidor de pruebas para permitir ejecutar la suite; autenticación, autorización, PostgreSQL e interceptor siguen activos.
+
+## Administración de usuarios y sesiones (punto 3)
+
+- `PUT /api/v1/users/{id}`: reemplaza `email`, `userName`, `fullName` e `isActive`. Requiere `users.manage`. Desactivar revoca los refresh tokens existentes.
+- `GET /api/v1/users/{id}/access`: devuelve roles, excepciones y alcances; requiere `users.manage`.
+- `PUT /api/v1/users/{id}/access`: reemplaza el conjunto completo de accesos. Requiere **ambos** permisos `users.manage` y `roles.manage`, al igual que crear usuarios. Las listas vacías retiran asignaciones; una excepción con el mismo permiso actualiza su tipo.
+- `GET /api/v1/permissions?offset=0&limit=100`: catálogo de UUID y códigos, requiere `roles.manage`; máximo 100 resultados.
+- `GET /api/v1/users/me`: perfil, permisos efectivos y UUID de bodegas del usuario autenticado, sin exigir permisos administrativos.
+- `POST /api/v1/auth/logout`: revoca todos los refresh tokens del usuario autenticado, en todos los dispositivos; responde `204` y admite repetición.
+- `DELETE /api/v1/users/{id}/sessions`: revocación administrativa de todos los refresh tokens del usuario; requiere `users.manage`.
+
+Ejemplo del cuerpo de actualización de accesos:
+
+```json
+{
+  "roleIds": ["11111111-1111-1111-1111-111111111111"],
+  "overrides": [{"permissionId": "22222222-2222-2222-2222-222222222222", "type": 2}],
+  "hasAllWarehousesAccess": false,
+  "warehouseIds": ["33333333-3333-3333-3333-333333333333"]
+}
+```
+
+`type` es `1` (Allow) o `2` (Deny). Deny prevalece sobre roles y Allow mediante el motor existente. El acceso global exige `warehouseIds: []`; retirarlo deja únicamente las bodegas enviadas. UUID inexistentes producen `404`, entradas inválidas `400` y correos duplicados `409`, sin guardar modificaciones parciales. La creación también comprueba todos los UUID de bodegas recibidos.
+
+**Política de sesiones:** logout y revocación administrativa invalidan la renovación, pero los JWT emitidos continúan hasta su expiración (15 minutos por defecto, más la tolerancia de reloj de 30 segundos). Los permisos y alcances se consultan en PostgreSQL en cada solicitud; no dependen de los roles antiguos del JWT. Cada JWT comprueba además que el usuario siga activo: al desactivarlo devuelve `401`, y login/refresh denegados conservan el `403` del contrato existente. Reactivar exige un nuevo login para obtener refresh tokens; un JWT previo aún vigente vuelve a ser aceptado al reactivar. No se añade una blacklist ni nuevas dependencias o migraciones.
