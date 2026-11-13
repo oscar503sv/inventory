@@ -4,7 +4,7 @@ Fecha de planificación: 2026-11-12.
 
 Objetivo: cerrar y validar la fase 1 del backend, construir una interfaz operativa y avanzar después con compras y reportes.
 
-Este documento reúne el estado histórico, los pendientes y la planificación acordada. Todas las tareas del plan están pendientes; su inclusión no implica implementación ni validación. Los requisitos se mantienen en [producto.md](producto.md) y las decisiones técnicas en [arquitectura.md](arquitectura.md).
+Este documento reúne el estado histórico, los pendientes y la planificación acordada. El punto 1 está implementado y validado localmente; los puntos 2–6 siguen pendientes. Las casillas y la evidencia indican el estado comprobado de cada tarea. Los requisitos se mantienen en [producto.md](producto.md) y las decisiones técnicas en [arquitectura.md](arquitectura.md).
 
 Consolidación documental: 2026-11-12. El contenido de `docs/project.md` se integró aquí; las instrucciones de ejecución están en el [README](../README.md).
 
@@ -12,7 +12,7 @@ Consolidación documental: 2026-11-12. El contenido de `docs/project.md` se inte
 
 El estado histórico del 2026-06-08 reporta la base y gran parte del backend de fase 1 implementadas: 41 pruebas aprobadas (Domain 27, Authorization 7, Application 7), compilación sin advertencias ni errores y pruebas de aplicación con EF en memoria. Es evidencia documental anterior; no se volvieron a ejecutar esas comprobaciones al consolidar estos archivos.
 
-La revisión de código del 2026-11-12 identificó pendientes de autorización, auditoría y concurrencia detallados en el paso 2. Por ello, las funciones descritas a continuación no equivalen a una fase cerrada ni a una validación de producción. La atomicidad debe verificarse contra PostgreSQL real.
+La revisión de código del 2026-11-12 identificó pendientes de autorización, auditoría y concurrencia detallados en el paso 2. Por ello, las funciones descritas a continuación no equivalen a una fase cerrada ni a una validación de producción. La validación secuencial del punto 1 ya usa PostgreSQL real; los casos de error y concurrencia del punto 2 siguen pendientes.
 
 ### Funciones documentadas en la fase 1
 
@@ -67,8 +67,7 @@ La revisión de código del 2026-11-12 identificó pendientes de autorización, 
   flow (entry/exit/transfer → stock + kardex running balance).
 - ✅ API boots and serves `/health` (`Healthy`), `/swagger`, returns `401` on protected routes, emits
   the `X-Correlation-Id` header, and degrades to `500 ProblemDetails` (no crash) when the DB is down.
-- ⏳ **Pending:** full end-to-end run against a real PostgreSQL (login → product → entry → kardex).
-  La nota original indicaba que Docker seguía en instalación y requería reinicio; el entorno debe comprobarse de nuevo.
+- ✅ **Validado el 2026-11-12:** login → producto → entrada → salida → transferencia → kardex contra PostgreSQL real. Véase la evidencia del punto 1.
 
 
 ### Límites actuales
@@ -105,15 +104,28 @@ P0 identifica la base necesaria para continuar; P1 completa el producto operativ
 
 ## 1. Establecer una validación reproducible con PostgreSQL
 
-- [ ] Levantar el entorno local y verificar la configuración de conexión.
-- [ ] Aplicar migraciones en una base aislada y verificar los datos iniciales.
-- [ ] Ejecutar la compilación y las pruebas existentes; registrar los resultados actuales.
-- [ ] Incorporar pruebas de integración mediante la API y una base PostgreSQL aislada.
-- [ ] Cubrir el flujo login → producto → entrada → salida → transferencia → kardex.
-- [ ] Verificar persistencia, saldos por bodega y correspondencia entre movimientos y kardex.
-- [ ] Automatizar compilación y pruebas en integración continua.
+- [x] Levantar el entorno local y verificar la configuración de conexión.
+- [x] Aplicar migraciones en una base aislada y verificar los datos iniciales.
+- [x] Ejecutar la compilación y las pruebas existentes; registrar los resultados actuales.
+- [x] Incorporar pruebas de integración mediante la API y una base PostgreSQL aislada.
+- [x] Cubrir el flujo login → producto → entrada → salida → transferencia → kardex.
+- [x] Verificar persistencia, saldos por bodega y correspondencia entre movimientos y kardex.
+- [x] Automatizar compilación y pruebas en integración continua.
 
 **Criterio de finalización:** el flujo completo funciona contra PostgreSQL real y se verifica automáticamente en un entorno reproducible, sin depender de datos de desarrollo.
+
+### Evidencia de cierre — 2026-11-12
+
+- Rama de trabajo: `dev`. SDK oficial actualizado a **11.0.100** y fijado en `global.json`; destino de aplicación `net10.0`, runtime local ASP.NET Core **10.0.15**.
+- PostgreSQL local **18.6**, `localhost:5432`, usuario `ozkar`, base `inventario_erp`, creada mediante `scripts/init-db.sh`. Credenciales solo en `.env` ignorado por Git.
+- Migración aplicada: `20260609001034_InitialCreate`. Datos iniciales verificados: **21 permisos, 5 roles y 1 administrador**. El script de inicialización y el seeder admiten ejecuciones repetidas.
+- `bash scripts/validate.sh`: restauración correcta, compilación Release con **0 advertencias y 0 errores**; **43 pruebas aprobadas, 0 fallidas, 0 omitidas** (Domain 27, Authorization 7, Application 7, API/PostgreSQL 2). Resultados TRX en `TestResults/`.
+- Las dos pruebas nuevas comprueban migraciones y seed idempotente, y el flujo completo por HTTP con JWT real, catálogos y dos bodegas. Entrada 100, salida 30 y transferencia 20: saldos finales **50 en origen y 20 en destino**, contrastados con movimientos persistidos y kardex desde nuevos contextos y solicitudes.
+- Cada ejecución usa `inventario_erp_test_<uuid>` y elimina esa base al terminar. Se verificó la ausencia de bases temporales al finalizar; no utiliza datos de desarrollo.
+- `.github/workflows/validation.yml` automatiza el mismo script para push y pull request con PostgreSQL 16 efímero y publica resultados TRX. El flujo está configurado; su ejecución en GitHub queda para el siguiente push. La ejecución local comprobada fue contra PostgreSQL 18.6.
+- El inicio ahora falla con código de salida no cero si la migración o el seed fallan. `--migrate-only` permite inicializar la base sin iniciar HTTP.
+
+El punto 2 conserva sus pendientes de autorización, auditoría, concurrencia, idempotencia y atomicidad ante errores.
 
 ## 2. Corregir autorización e integridad del inventario
 

@@ -131,11 +131,13 @@ try
 
     await MigrateAndSeedAsync(app);
 
-    app.Run();
+    if (!args.Contains("--migrate-only"))
+        app.Run();
 }
 catch (Exception ex)
 {
     Log.Fatal(ex, "Inventory API terminated unexpectedly");
+    Environment.ExitCode = 1;
 }
 finally
 {
@@ -145,18 +147,10 @@ finally
 static async Task MigrateAndSeedAsync(WebApplication app)
 {
     using var scope = app.Services.CreateScope();
-    try
-    {
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await db.Database.MigrateAsync();
-        await scope.ServiceProvider.GetRequiredService<DatabaseSeeder>().SeedAsync();
-        Log.Information("Database migrated and seeded");
-    }
-    catch (Exception ex)
-    {
-        // Allow the app to boot (e.g. Swagger) even if the database is not reachable yet.
-        Log.Warning(ex, "Database migration/seed skipped — is PostgreSQL running?");
-    }
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await db.Database.MigrateAsync();
+    await scope.ServiceProvider.GetRequiredService<DatabaseSeeder>().SeedAsync();
+    Log.Information("Database migrated and seeded");
 }
 
 public partial class Program;
