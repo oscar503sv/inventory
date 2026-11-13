@@ -14,6 +14,7 @@ public sealed class Stock : AggregateRoot
     public Guid WarehouseId { get; private set; }
     public decimal Quantity { get; private set; }
     public decimal ReservedQuantity { get; private set; }
+    public long Version { get; private set; }
 
     /// <summary>AvailableQuantity = Quantity - ReservedQuantity.</summary>
     public decimal AvailableQuantity => Quantity - ReservedQuantity;
@@ -34,6 +35,7 @@ public sealed class Stock : AggregateRoot
             throw new DomainException("Increase amount must be positive.");
 
         Quantity += amount;
+        Version++;
     }
 
     public void Decrease(decimal amount)
@@ -46,6 +48,7 @@ public sealed class Stock : AggregateRoot
             throw new DomainException("Cannot reduce stock below the reserved quantity.");
 
         Quantity -= amount;
+        Version++;
     }
 
     /// <summary>Sets the physical quantity to an absolute value (used by adjustments).</summary>
@@ -57,6 +60,8 @@ public sealed class Stock : AggregateRoot
             throw new DomainException("Cannot adjust stock below the reserved quantity.");
 
         Quantity = newQuantity;
+        // Even a count equal to the current quantity must conflict with concurrent writes.
+        Version++;
     }
 
     public void Reserve(decimal amount)
@@ -67,6 +72,7 @@ public sealed class Stock : AggregateRoot
             throw new DomainException("Cannot reserve more than the available quantity.");
 
         ReservedQuantity += amount;
+        Version++;
     }
 
     public void Release(decimal amount)
@@ -77,6 +83,7 @@ public sealed class Stock : AggregateRoot
             throw new DomainException("Cannot release more than the reserved quantity.");
 
         ReservedQuantity -= amount;
+        Version++;
     }
 
     /// <summary>Raises <see cref="StockBelowMinimumDomainEvent"/> when the quantity drops below the product minimum.</summary>

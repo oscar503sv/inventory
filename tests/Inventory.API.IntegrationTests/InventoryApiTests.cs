@@ -14,6 +14,7 @@ using Shared.Contracts.Warehouses;
 
 namespace Inventory.API.IntegrationTests;
 
+[Collection("Postgres API")]
 public sealed class InventoryApiTests(PostgresApiFixture fixture) : IClassFixture<PostgresApiFixture>
 {
     [Fact]
@@ -22,6 +23,7 @@ public sealed class InventoryApiTests(PostgresApiFixture fixture) : IClassFixtur
         using var scope = fixture.Factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+        Assert.False(db.Database.HasPendingModelChanges());
         Assert.NotEmpty(await db.Database.GetAppliedMigrationsAsync());
         await scope.ServiceProvider.GetRequiredService<DatabaseSeeder>().SeedAsync();
         await scope.ServiceProvider.GetRequiredService<DatabaseSeeder>().SeedAsync();
@@ -58,15 +60,15 @@ public sealed class InventoryApiTests(PostgresApiFixture fixture) : IClassFixtur
         var destination = await Post<WarehouseDto>(client, "/api/v1/warehouses", new { code = "DST", name = "Destination", address = "B" });
         var entry = await Post<MovementDto>(client, "/api/v1/inventory/entries", new
         {
-            warehouseId = source.Id, lines = new[] { new { productId = product.Id, quantity = 100, unitCost = 2 } }
+            idempotencyKey = Guid.NewGuid(), warehouseId = source.Id, lines = new[] { new { productId = product.Id, quantity = 100, unitCost = 2 } }
         });
         var exit = await Post<MovementDto>(client, "/api/v1/inventory/exits", new
         {
-            warehouseId = source.Id, lines = new[] { new { productId = product.Id, quantity = 30, unitCost = 2 } }
+            idempotencyKey = Guid.NewGuid(), warehouseId = source.Id, lines = new[] { new { productId = product.Id, quantity = 30, unitCost = 2 } }
         });
         var transfer = await Post<MovementDto>(client, "/api/v1/inventory/transfers", new
         {
-            sourceWarehouseId = source.Id, destinationWarehouseId = destination.Id,
+            idempotencyKey = Guid.NewGuid(), sourceWarehouseId = source.Id, destinationWarehouseId = destination.Id,
             lines = new[] { new { productId = product.Id, quantity = 20, unitCost = 2 } }
         });
 

@@ -27,7 +27,7 @@ La cadena `ConnectionStrings__Postgres` configura tanto la API como `dotnet ef`.
 
 ```bash
 source .env
-dotnet ef database update --project src/Inventory.Persistence --startup-project src/Inventory.API
+dotnet ef database update --project src/Inventory.Persistence --startup-project src/Inventory.Persistence
 ```
 
 Como alternativa a PostgreSQL instalado localmente, `docker compose up -d postgres` provisiona PostgreSQL 16 en el puerto **5433** con las variables `PGUSER`, `PGPASSWORD` y `PGDATABASE` de `.env`. Cambiar `PGPORT` y los puertos de ambas cadenas en `.env` a 5433 antes de ejecutar los scripts. Las variables de inicialización del contenedor solo se aplican a volúmenes nuevos. Redis y RabbitMQ están disponibles en Compose para etapas posteriores.
@@ -52,4 +52,24 @@ dotnet test tests/Inventory.Authorization.Tests
 dotnet test tests/Inventory.Application.Tests
 ```
 
-La validación del punto 1 no cierra los pendientes de autorización, auditoría o concurrencia del punto 2 del backlog.
+## Contrato de movimientos e integridad
+
+Los cuatro POST de `/api/v1/inventory` requieren `idempotencyKey`, un UUID no vacío generado por el cliente para cada operación. Ejemplo de entrada:
+
+```json
+{
+  "idempotencyKey": "abf9c832-554d-4461-8515-a40a2048ecbb",
+  "warehouseId": "9c90e0c8-bcaf-4e3a-b191-3a179560e3e9",
+  "lines": [{ "productId": "f85dcbdf-b38e-4ca1-bacd-a28041db5044", "quantity": 10, "unitCost": 2 }]
+}
+```
+
+Conservar esa clave y el contenido del comando al reintentar. La clave se reserva por usuario entre los cuatro tipos de movimiento y permanece mientras exista el movimiento. Una repetición confirmada devuelve `200` con el movimiento original, sin cambiar stock ni añadir auditorías. Reutilizar la clave con otro contenido o tipo devuelve `409`. Los movimientos históricos anteriores a esta migración no tienen clave.
+
+Un conflicto de escritura simultánea devuelve `409 ProblemDetails` y revierte toda la operación. El cliente puede reintentar la solicitud completa con la misma clave y contenido, usando una espera entre intentos. Esto también aplica a duplicados que llegan simultáneamente: uno confirma y el otro puede recibir `409`; su siguiente intento devuelve el resultado confirmado. Un reintento se valida contra el saldo actual y puede recibir `422`, por ejemplo si ya no hay stock suficiente. Las solicitudes fallidas no consumen su clave.
+
+Cada producto puede aparecer una sola vez en un movimiento; los duplicados y las claves ausentes devuelven `400`. Cantidades y costos deben caber en `numeric(18,4)` (hasta 14 dígitos enteros y 4 decimales); se rechaza el exceso de precisión para evitar redondeos que desajusten el kardex. Los ceros decimales finales no cambian la huella de idempotencia: `10` y `10.0` son equivalentes. Los ajustes conservan el contrato de cantidad absoluta positiva y justificación obligatoria. Una transferencia exige acceso a ambas bodegas. Todas las solicitudes, incluidos los reintentos, comprueban los permisos y alcances actuales. Las consultas sin bodega devuelven únicamente datos autorizados; consultar explícitamente una bodega fuera de alcance devuelve `403`.
+
+La migración `InventoryIntegrity` incorpora versiones de stock, la unicidad de claves por usuario y una secuencia para reconstruir el kardex independientemente del reloj de las solicitudes. Conserva el orden histórico anterior y limpia campos de contraseñas, hashes y tokens previamente guardados en auditoría. Esta limpieza de datos sensibles es irreversible; la auditoría nueva usa una lista explícita de propiedades permitidas.
+
+La suite PostgreSQL incluye aislamiento por bodega, Allow/Deny, limpieza de auditoría, actualización de una base existente, movimientos simultáneos, reintentos y errores en ajustes y transferencias. Las pruebas coordinan dos solicitudes antes de guardar para comprobar conflictos reales, tanto con stock existente como al crearlo. El límite de solicitudes se desactiva solo en el servidor de pruebas para permitir ejecutar la suite; autenticación, autorización, PostgreSQL e interceptor siguen activos.

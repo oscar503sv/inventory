@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace Inventory.API.IntegrationTests;
 
@@ -13,6 +14,7 @@ public sealed class PostgresApiFixture : IAsyncLifetime
     private string? _adminConnection;
     private bool _created;
     public WebApplicationFactory<Program> Factory { get; private set; } = null!;
+    public ConcurrentSaveGate SaveGate { get; } = new();
 
     public async Task InitializeAsync()
     {
@@ -27,7 +29,7 @@ public sealed class PostgresApiFixture : IAsyncLifetime
         await create.ExecuteNonQueryAsync();
         _created = true;
         settings.Database = _database;
-        Factory = new ApiFactory(settings.ConnectionString);
+        Factory = new ApiFactory(settings.ConnectionString, SaveGate);
         try
         {
             // Start the real API: migrations, seed, authentication and interceptors remain enabled.
@@ -54,12 +56,18 @@ public sealed class PostgresApiFixture : IAsyncLifetime
         _created = false;
     }
 
-    private sealed class ApiFactory(string connection) : WebApplicationFactory<Program>
+    private sealed class ApiFactory(string connection, ConcurrentSaveGate gate) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseEnvironment("Testing");
             builder.UseSetting("ConnectionStrings:Postgres", connection);
+            builder.ConfigureServices(services =>
+            {
+                services.AddDbContext<AppDbContext>(options => options.AddInterceptors(gate));
+                // Inventory regression suites deliberately exceed the public per-minute quota.
+                services.Configure<RateLimiterOptions>(options => options.GlobalLimiter = null);
+            });
         }
     }
 }

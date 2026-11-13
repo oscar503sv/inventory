@@ -13,11 +13,18 @@ public sealed record GetStockQuery(Guid? ProductId = null, Guid? WarehouseId = n
 public sealed class GetStockQueryHandler : IRequestHandler<GetStockQuery, IReadOnlyList<StockDto>>
 {
     private readonly IApplicationDbContext _db;
-    public GetStockQueryHandler(IApplicationDbContext db) => _db = db;
+    private readonly IPermissionChecker _permissions;
+    public GetStockQueryHandler(IApplicationDbContext db, IPermissionChecker permissions)
+        => (_db, _permissions) = (db, permissions);
 
     public async Task<IReadOnlyList<StockDto>> Handle(GetStockQuery request, CancellationToken cancellationToken)
     {
         var query = _db.Stocks.AsNoTracking();
+        if (request.WarehouseId is { } requestedWarehouse)
+            await _permissions.EnsureWarehouseAccessAsync(requestedWarehouse, cancellationToken);
+        var access = await _permissions.GetCurrentUserAuthorizationAsync(cancellationToken);
+        if (!access.HasAllWarehousesAccess)
+            query = query.Where(s => access.WarehouseScopes.Contains(s.WarehouseId));
         if (request.ProductId is { } productId)
             query = query.Where(s => s.ProductId == productId);
         if (request.WarehouseId is { } warehouseId)
@@ -41,18 +48,21 @@ public sealed record GetKardexQuery(
 public sealed class GetKardexQueryHandler : IRequestHandler<GetKardexQuery, IReadOnlyList<KardexEntryDto>>
 {
     private readonly IApplicationDbContext _db;
-    public GetKardexQueryHandler(IApplicationDbContext db) => _db = db;
+    private readonly IPermissionChecker _permissions;
+    public GetKardexQueryHandler(IApplicationDbContext db, IPermissionChecker permissions)
+        => (_db, _permissions) = (db, permissions);
 
     public async Task<IReadOnlyList<KardexEntryDto>> Handle(GetKardexQuery request, CancellationToken cancellationToken)
     {
         var w = request.WarehouseId;
+        await _permissions.EnsureWarehouseAccessAsync(w, cancellationToken);
 
         var rows = await (
             from line in _db.InventoryMovementLines
             join movement in _db.InventoryMovements on line.MovementId equals movement.Id
             where line.ProductId == request.ProductId
                   && (movement.WarehouseId == w || movement.DestinationWarehouseId == w)
-            orderby movement.CreatedAtUtc, movement.MovementNumber
+            orderby movement.LedgerSequence
             select new
             {
                 movement.MovementNumber,

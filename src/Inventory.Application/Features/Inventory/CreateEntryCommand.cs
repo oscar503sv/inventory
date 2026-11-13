@@ -10,19 +10,23 @@ namespace Inventory.Application.Features.Inventory;
 public sealed record CreateEntryCommand(
     Guid WarehouseId,
     IReadOnlyList<MovementLineInput> Lines,
-    string? Notes = null) : IRequest<MovementDto>;
+    string? Notes = null,
+    Guid IdempotencyKey = default) : IRequest<MovementDto>, IInventoryCommand;
 
 public sealed class CreateEntryCommandValidator : AbstractValidator<CreateEntryCommand>
 {
     public CreateEntryCommandValidator()
     {
         RuleFor(x => x.WarehouseId).NotEmpty();
-        RuleFor(x => x.Lines).NotEmpty();
+        RuleFor(x => x.IdempotencyKey).NotEmpty();
+        RuleFor(x => x.Lines).NotEmpty()
+            .Must(lines => lines is null || lines.All(l => l is not null) && lines.Select(l => l.ProductId).Distinct().Count() == lines.Count)
+            .WithMessage("A product may appear only once per movement.");
         RuleForEach(x => x.Lines).ChildRules(line =>
         {
             line.RuleFor(l => l.ProductId).NotEmpty();
-            line.RuleFor(l => l.Quantity).GreaterThan(0);
-            line.RuleFor(l => l.UnitCost).GreaterThanOrEqualTo(0);
+            line.RuleFor(l => l.Quantity).PrecisionScale(18, 4, ignoreTrailingZeros: true).GreaterThan(0);
+            line.RuleFor(l => l.UnitCost).PrecisionScale(18, 4, ignoreTrailingZeros: true).GreaterThanOrEqualTo(0);
         });
     }
 }
@@ -52,6 +56,9 @@ public sealed class CreateEntryCommandHandler : IRequestHandler<CreateEntryComma
     public async Task<MovementDto> Handle(CreateEntryCommand request, CancellationToken cancellationToken)
     {
         await _permissions.EnsureWarehouseAccessAsync(request.WarehouseId, cancellationToken);
+        var replay = await InventorySupport.FindReplayAsync(
+            _db, _currentUser.UserId ?? Guid.Empty, request, cancellationToken);
+        if (replay is not null) return replay;
         await InventorySupport.EnsureWarehouseExistsAsync(_db, request.WarehouseId, cancellationToken);
         await InventorySupport.LoadProductMinimumsAsync(
             _db, request.Lines.Select(l => l.ProductId), cancellationToken);
@@ -71,6 +78,7 @@ public sealed class CreateEntryCommandHandler : IRequestHandler<CreateEntryComma
             stock.Increase(line.Quantity);
         }
 
+        movement.SetIdempotency(request.IdempotencyKey, InventorySupport.RequestHash(request));
         _db.InventoryMovements.Add(movement);
         await _db.SaveChangesAsync(cancellationToken);
 

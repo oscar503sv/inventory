@@ -49,8 +49,8 @@ public class InventoryFlowTests
             new CreateEntryCommandHandler(db, user, clock, numbers, perms),
             new CreateExitCommandHandler(db, user, clock, numbers, perms),
             new CreateTransferCommandHandler(db, user, clock, numbers, perms),
-            new GetKardexQueryHandler(db),
-            new GetStockQueryHandler(db));
+            new GetKardexQueryHandler(db, perms),
+            new GetStockQueryHandler(db, perms));
     }
 
     [Fact]
@@ -61,9 +61,9 @@ public class InventoryFlowTests
         var (entry, exit, _, kardex, stock) = Handlers(db);
 
         await entry.Handle(new CreateEntryCommand(
-            warehouseId, [new MovementLineInput(productId, 100, 2)]), default);
+            warehouseId, [new MovementLineInput(productId, 100, 2)], IdempotencyKey: Guid.NewGuid()), default);
         await exit.Handle(new CreateExitCommand(
-            warehouseId, [new MovementLineInput(productId, 30)]), default);
+            warehouseId, [new MovementLineInput(productId, 30)], IdempotencyKey: Guid.NewGuid()), default);
 
         var stocks = await stock.Handle(new GetStockQuery(productId, warehouseId), default);
         stocks.Single().Quantity.Should().Be(70);
@@ -82,10 +82,10 @@ public class InventoryFlowTests
         var (productId, warehouseId) = await SeedAsync(db);
         var (entry, exit, _, _, _) = Handlers(db);
 
-        await entry.Handle(new CreateEntryCommand(warehouseId, [new MovementLineInput(productId, 10)]), default);
+        await entry.Handle(new CreateEntryCommand(warehouseId, [new MovementLineInput(productId, 10)], IdempotencyKey: Guid.NewGuid()), default);
 
         var act = async () => await exit.Handle(
-            new CreateExitCommand(warehouseId, [new MovementLineInput(productId, 25)]), default);
+            new CreateExitCommand(warehouseId, [new MovementLineInput(productId, 25)], IdempotencyKey: Guid.NewGuid()), default);
 
         await act.Should().ThrowAsync<DomainException>().WithMessage("*Negative stock*");
     }
@@ -102,9 +102,9 @@ public class InventoryFlowTests
 
         var (entry, _, transfer, _, stock) = Handlers(db);
 
-        await entry.Handle(new CreateEntryCommand(sourceId, [new MovementLineInput(productId, 100)]), default);
+        await entry.Handle(new CreateEntryCommand(sourceId, [new MovementLineInput(productId, 100)], IdempotencyKey: Guid.NewGuid()), default);
         await transfer.Handle(new CreateTransferCommand(
-            sourceId, destination.Id, [new MovementLineInput(productId, 40)]), default);
+            sourceId, destination.Id, [new MovementLineInput(productId, 40)], IdempotencyKey: Guid.NewGuid()), default);
 
         var sourceStock = (await stock.Handle(new GetStockQuery(productId, sourceId), default)).Single();
         var destStock = (await stock.Handle(new GetStockQuery(productId, destination.Id), default)).Single();

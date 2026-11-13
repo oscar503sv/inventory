@@ -4,7 +4,7 @@ Fecha de planificación: 2026-11-12.
 
 Objetivo: cerrar y validar la fase 1 del backend, construir una interfaz operativa y avanzar después con compras y reportes.
 
-Este documento reúne el estado histórico, los pendientes y la planificación acordada. El punto 1 está implementado y validado localmente; los puntos 2–6 siguen pendientes. Las casillas y la evidencia indican el estado comprobado de cada tarea. Los requisitos se mantienen en [producto.md](producto.md) y las decisiones técnicas en [arquitectura.md](arquitectura.md).
+Este documento reúne el estado histórico, los pendientes y la planificación acordada. Los puntos 1 y 2 están implementados y validados localmente; los puntos 3–6 siguen pendientes. Las casillas y la evidencia indican el estado comprobado de cada tarea. Los requisitos se mantienen en [producto.md](producto.md) y las decisiones técnicas en [arquitectura.md](arquitectura.md).
 
 Consolidación documental: 2026-11-12. El contenido de `docs/project.md` se integró aquí; las instrucciones de ejecución están en el [README](../README.md).
 
@@ -12,7 +12,7 @@ Consolidación documental: 2026-11-12. El contenido de `docs/project.md` se inte
 
 El estado histórico del 2026-06-08 reporta la base y gran parte del backend de fase 1 implementadas: 41 pruebas aprobadas (Domain 27, Authorization 7, Application 7), compilación sin advertencias ni errores y pruebas de aplicación con EF en memoria. Es evidencia documental anterior; no se volvieron a ejecutar esas comprobaciones al consolidar estos archivos.
 
-La revisión de código del 2026-11-12 identificó pendientes de autorización, auditoría y concurrencia detallados en el paso 2. Por ello, las funciones descritas a continuación no equivalen a una fase cerrada ni a una validación de producción. La validación secuencial del punto 1 ya usa PostgreSQL real; los casos de error y concurrencia del punto 2 siguen pendientes.
+La revisión de código del 2026-11-12 identificó los problemas de autorización, auditoría y concurrencia detallados en el paso 2. Se corrigieron y validaron localmente ese mismo día: **76 pruebas aprobadas** (Domain 28, Authorization 7, Application 7, API/PostgreSQL 34), compilación Release sin advertencias ni errores. La validación incluye acceso por bodega, auditoría sin credenciales, idempotencia, errores y concurrencia sobre PostgreSQL real. Quedan pendientes las funciones de los puntos 3–6; esto no equivale al cierre de toda la fase 1 ni a una validación de producción.
 
 ### Funciones documentadas en la fase 1
 
@@ -73,7 +73,7 @@ La revisión de código del 2026-11-12 identificó pendientes de autorización, 
 ### Límites actuales
 
 - Usuarios: creación y listado; administración completa de roles, excepciones y alcances pendiente.
-- Auditoría: escritura mediante interceptor; falta consulta y corrección del registro de datos sensibles.
+- Auditoría: escritura mediante interceptor con propiedades permitidas y limpieza de campos sensibles históricos; falta la consulta operativa.
 - Reservas: `ReservedQuantity` y operaciones Reserve/Release en el dominio, sin casos de uso ni endpoints.
 - Sesiones: sin logout ni endpoint de revocación, ni blacklist JWT en Redis.
 - `/health` comprueba que el proceso está activo; falta verificar disponibilidad de dependencias.
@@ -125,26 +125,41 @@ P0 identifica la base necesaria para continuar; P1 completa el producto operativ
 - `.github/workflows/validation.yml` automatiza el mismo script para push y pull request con PostgreSQL 16 efímero y publica resultados TRX. El flujo está configurado; su ejecución en GitHub queda para el siguiente push. La ejecución local comprobada fue contra PostgreSQL 18.6.
 - El inicio ahora falla con código de salida no cero si la migración o el seed fallan. `--migrate-only` permite inicializar la base sin iniciar HTTP.
 
-El punto 2 conserva sus pendientes de autorización, auditoría, concurrencia, idempotencia y atomicidad ante errores.
+Al cerrar el punto 1 quedaron pendientes autorización, auditoría, concurrencia, idempotencia y atomicidad ante errores; su resolución y evidencia se registran en el punto 2.
 
 ## 2. Corregir autorización e integridad del inventario
 
-La revisión inicial identificó consultas de stock y kardex sin comprobación del alcance por bodega, serialización de propiedades sensibles como `PasswordHash` en auditoría y ausencia de un control de concurrencia configurado para el stock. Estos puntos deben contar con pruebas de regresión.
+La revisión inicial identificó consultas de stock y kardex sin comprobación del alcance por bodega, serialización de propiedades sensibles como `PasswordHash` en auditoría y ausencia de un control de concurrencia configurado para el stock. Estos problemas están corregidos y cuentan con pruebas de regresión.
 
-- [ ] Restringir las consultas de stock y kardex a las bodegas autorizadas para el usuario.
-- [ ] Aplicar el alcance del usuario a los listados de bodegas y a las consultas sin filtro de bodega.
-- [ ] Probar acceso autorizado y denegado, incluidos usuarios con acceso global y excepciones Allow/Deny.
-- [ ] Excluir contraseñas, hashes y tokens de los datos de auditoría.
-- [ ] Incorporar control de concurrencia para impedir que movimientos simultáneos sobrescriban saldos.
-- [ ] Definir el comportamiento ante conflictos de concurrencia y verificarlo con PostgreSQL.
-- [ ] Definir e implementar idempotencia para evitar movimientos duplicados al reintentar solicitudes.
-- [ ] Definir y probar el tratamiento de productos repetidos dentro de un movimiento.
-- [ ] Probar ajustes y transferencias con errores, verificando que no persistan cambios parciales.
-- [ ] Comprobar que stock y kardex permanezcan consistentes después de operaciones simultáneas y reintentos.
+- [x] Restringir las consultas de stock y kardex a las bodegas autorizadas para el usuario.
+- [x] Aplicar el alcance del usuario a los listados de bodegas y a las consultas sin filtro de bodega.
+- [x] Probar acceso autorizado y denegado, incluidos usuarios con acceso global y excepciones Allow/Deny.
+- [x] Excluir contraseñas, hashes y tokens de los datos de auditoría.
+- [x] Incorporar control de concurrencia para impedir que movimientos simultáneos sobrescriban saldos.
+- [x] Definir el comportamiento ante conflictos de concurrencia y verificarlo con PostgreSQL.
+- [x] Definir e implementar idempotencia para evitar movimientos duplicados al reintentar solicitudes.
+- [x] Definir y probar el tratamiento de productos repetidos dentro de un movimiento.
+- [x] Probar ajustes y transferencias con errores, verificando que no persistan cambios parciales.
+- [x] Comprobar que stock y kardex permanezcan consistentes después de operaciones simultáneas y reintentos.
 
 **Criterio de finalización:** las pruebas demuestran aislamiento entre bodegas, ausencia de datos sensibles en auditoría, saldos consistentes bajo concurrencia, reintentos sin duplicación y transferencias atómicas.
 
 **Hito de la primera entrega:** completar los pasos 1 y 2 antes de ampliar la administración y construir la interfaz.
+
+### Evidencia de cierre — 2026-11-12
+
+- Rama de trabajo: `dev`. `bash scripts/validate.sh` completado con SDK **11.0.100** y PostgreSQL local **18.6**: restauración correcta, compilación Release con **0 advertencias y 0 errores**, **76 pruebas aprobadas, 0 fallidas, 0 omitidas** (Domain 28, Authorization 7, Application 7, API/PostgreSQL 34). Resultados TRX en `TestResults/`; la suite crea y elimina bases aisladas, sin modificar los datos de desarrollo.
+- Stock, kardex y listados de bodegas aplican alcance por usuario; las consultas explícitas fuera de alcance devuelven `403` y las listas sin filtro solo incluyen bodegas autorizadas. La edición de bodegas también comprueba alcance. Se prueban roles, Allow sin rol, Deny con acceso global, usuarios sin alcances y transferencias que requieren acceso a origen y destino. Revocar el alcance impide también reproducir una solicitud confirmada.
+- Auditoría usa una lista explícita de propiedades de negocio por entidad. Las pruebas cubren altas, cambios de contraseña, bajas y rotación de tokens, verificando que ni los nombres de campos sensibles ni sus valores entren en los JSON. La migración elimina contraseñas, hashes, tokens y secretos históricos; esta limpieza no se revierte al bajar de versión.
+- `Stock.Version` controla escrituras concurrentes, incluidos ajustes al mismo saldo. Los conflictos de versión, creación simultánea de stock y clave duplicada concurrente devuelven `409 ProblemDetails`. También se verifica el tratamiento de errores PostgreSQL `40001` y `40P01` mediante fallos de escritura inyectados en la base: la transferencia completa se revierte y su reintento funciona. No se hacen reintentos automáticos en el servidor.
+- Los cuatro tipos de movimiento exigen `idempotencyKey` UUID en el cuerpo. La clave es única por usuario entre todos los tipos, se conserva con el movimiento y no expira. Repetir el mismo comando confirmado devuelve `200` y el movimiento original; cambiar su contenido o tipo devuelve `409`. Duplicados simultáneos pueden recibir `409` y recuperar el resultado al reintentar. Las solicitudes fallidas no consumen la clave; las históricas anteriores a la migración no tienen clave. Los permisos se comprueban antes de devolver resultados previos.
+- Productos repetidos se rechazan con `400` y también se impiden en el agregado. Cantidades y costos se validan contra `numeric(18,4)` para evitar redondeos que desajusten stock y kardex. La huella normaliza números equivalentes, como `10` y `10.0`.
+- Las pruebas coordinan solicitudes HTTP con conexiones y contextos separados después de leer el stock y antes de guardar. Cubren entradas con stock nuevo y existente, salidas que no pueden consumir más de lo disponible, transferencias con destino nuevo y existente, ajustes al mismo saldo, ajuste frente a salida, duplicados simultáneos y reintentos. Contrastan stock, movimientos, kardex y auditorías desde nuevas solicitudes/contextos.
+- Ajustes y transferencias que fallan en una línea posterior no guardan saldos, destinos ni movimientos parciales. Se verifica que la clave pueda utilizarse después de corregir una solicitud fallida. Los conflictos durante `SaveChanges` tampoco dejan auditorías huérfanas.
+- Migración incluida: `20261113035606_InventoryIntegrity`. Agrega versiones, idempotencia e índices únicos y `LedgerSequence` para el kardex. Se prueba una actualización desde la migración inicial con datos existentes: conserva el orden histórico, limpia auditoría y continúa la secuencia. Otra prueba confirma saldos correctos aunque el reloj retroceda. El modelo EF coincide con las migraciones.
+- El contrato y los reintentos están documentados en el [README](../README.md#contrato-de-movimientos-e-integridad) y las decisiones en [arquitectura.md](arquitectura.md#integridad-de-movimientos--punto-2). El workflow existente ejecuta la misma validación en GitHub; esta evidencia corresponde a la ejecución local.
+
+**Primera entrega completada localmente:** puntos 1 y 2 cerrados. El siguiente trabajo corresponde al punto 3; los puntos 3–6 mantienen sus pendientes.
 
 ## 3. Completar usuarios, permisos y sesiones
 

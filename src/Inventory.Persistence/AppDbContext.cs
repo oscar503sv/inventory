@@ -1,4 +1,5 @@
 using Inventory.Application.Common.Abstractions;
+using Inventory.Application.Common.Exceptions;
 using Inventory.Domain.Audit;
 using Inventory.Domain.Catalog;
 using Inventory.Domain.Common;
@@ -6,6 +7,7 @@ using Inventory.Domain.Identity;
 using Inventory.Domain.Inventory;
 using Inventory.Domain.Warehouses;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Inventory.Persistence;
 
@@ -54,7 +56,21 @@ public sealed class AppDbContext : DbContext, IApplicationDbContext
             .SelectMany(e => e.Entity.DomainEvents)
             .ToList();
 
-        var result = await base.SaveChangesAsync(cancellationToken);
+        int result;
+        try
+        {
+            result = await base.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            ChangeTracker.Clear();
+            throw new ConflictException("Stock changed concurrently. Retry the complete request with the same idempotency key.");
+        }
+        catch (Exception ex) when (IsInventoryWriteConflict(ex))
+        {
+            ChangeTracker.Clear();
+            throw new ConflictException("An inventory request conflicted with another write. Retry the complete request with the same idempotency key.");
+        }
 
         // Dispatch after commit so handlers observe persisted state (ADR-004).
         if (domainEvents.Count > 0)
@@ -66,5 +82,18 @@ public sealed class AppDbContext : DbContext, IApplicationDbContext
         }
 
         return result;
+    }
+
+    private static bool IsInventoryWriteConflict(Exception exception)
+    {
+        // Npgsql's execution strategy wraps transient PostgreSQL errors in InvalidOperationException.
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is PostgresException postgres)
+                return postgres.SqlState is PostgresErrorCodes.DeadlockDetected or PostgresErrorCodes.SerializationFailure
+                    || (postgres.SqlState == PostgresErrorCodes.UniqueViolation && postgres.ConstraintName is
+                        "IX_stocks_ProductId_WarehouseId" or "IX_inventory_movements_CreatedBy_IdempotencyKey");
+        }
+        return false;
     }
 }

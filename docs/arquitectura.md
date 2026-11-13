@@ -190,9 +190,18 @@ Phase 1 keeps PostgreSQL as the only store. Active Redis caching is wired in Pha
 
 ## Aplicación por etapas y aclaraciones
 
-- **ADR-001:** el saldo persistido es una proyección del historial. Los manejadores actuales actualizan el stock al guardar movimientos; la validación de consistencia y concurrencia está en el backlog.
-- **ADR-003:** el permiso y el alcance por bodega deben comprobarse juntos. La revisión detectó consultas de stock y kardex que todavía no cumplen la comprobación de alcance.
+- **ADR-001:** el saldo persistido es una proyección del historial. Los manejadores actuales actualizan el stock al guardar movimientos; el punto 2 incorpora versiones optimistas de stock, idempotencia por usuario y pruebas de consistencia con PostgreSQL. Un único `SaveChanges` confirma stock, movimiento, líneas y auditoría; cualquier conflicto revierte la operación y devuelve `409`. No hay reintentos automáticos en el servidor.
+- **ADR-003:** el permiso y el alcance por bodega deben comprobarse juntos. Stock, kardex y listados de bodegas aplican el alcance. Las consultas explícitas fuera de alcance devuelven `403`; las listas sin filtro se restringen a las bodegas autorizadas. Los reintentos vuelven a comprobar autorización antes de devolver un movimiento existente.
 - **ADR-004:** la lista de eventos es el catálogo objetivo e incluye compras y reportes de fases futuras. En la fase 1 el despachador solo registra eventos en el proceso; RabbitMQ y sus consumidores siguen pendientes.
 - **ADR-005:** actualmente los refresh tokens se almacenan en PostgreSQL y el rate limiting se ejecuta en la API. Redis está provisionado, pero sus usos previstos no están conectados. La política de revocación se concretará al implementar sesiones.
 - Los consumidores previstos son `AuditWorker`, `NotificationWorker` y `ReportWorker`; `AnalyticsWorker` e `IntegrationWorker` quedan para el futuro.
 - La disponibilidad de Redis y RabbitMQ se comprobará cuando sus funciones se integren; PostgreSQL es la dependencia operativa inmediata.
+
+## Integridad de movimientos — punto 2
+
+- `Stock.Version` es un token de concurrencia que avanza en cada operación del dominio, incluso un ajuste al mismo saldo. EF comprueba la versión original al escribir. La unicidad producto/bodega también protege la creación simultánea de stock.
+- Cada comando exige una clave UUID. El movimiento conserva la clave y una huella SHA-256 del tipo y contenido del comando. El índice único `(CreatedBy, IdempotencyKey)` protege también contra solicitudes duplicadas concurrentes. La clave, el movimiento y sus efectos se confirman en la misma transacción de `SaveChanges`.
+- Ante una versión obsoleta, creación simultánea de stock, clave concurrente, deadlock o fallo de serialización de escritura, se devuelve `409` sin guardar cambios parciales. Se descarta el estado seguido por el contexto; el cliente reintenta toda la solicitud con la misma clave. Una clave confirmada con contenido diferente también devuelve `409`.
+- `LedgerSequence`, generada por PostgreSQL, determina el orden del kardex. Los movimientos que dependen de un saldo confirmado reciben una secuencia posterior; los que leyeron una versión obsoleta fallan. Los huecos por transacciones revertidas son normales. Las fechas siguen siendo informativas y se conservan los saldos previos al aplicar filtros de fecha.
+- Los productos repetidos se rechazan tanto en validación como en el agregado. No se suman automáticamente, especialmente porque un ajuste representa una cantidad absoluta. Las cantidades y costos se validan contra la precisión persistida `numeric(18,4)`; la huella normaliza representaciones numéricas equivalentes como `10` y `10.0`.
+- Auditoría serializa solo propiedades de negocio autorizadas explícitamente por entidad. La migración elimina campos sensibles de registros históricos como excepción de seguridad a su inmutabilidad; una reversión de esquema no restaura esas credenciales.

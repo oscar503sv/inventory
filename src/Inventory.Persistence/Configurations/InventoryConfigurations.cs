@@ -12,6 +12,7 @@ public sealed class StockConfiguration : IEntityTypeConfiguration<Stock>
         builder.HasKey(s => s.Id);
         builder.Property(s => s.Quantity).HasPrecision(18, 4);
         builder.Property(s => s.ReservedQuantity).HasPrecision(18, 4);
+        builder.Property(s => s.Version).IsConcurrencyToken();
         builder.Ignore(s => s.AvailableQuantity);
         builder.Ignore(s => s.DomainEvents);
         builder.HasIndex(s => new { s.ProductId, s.WarehouseId }).IsUnique();
@@ -28,6 +29,10 @@ public sealed class InventoryMovementConfiguration : IEntityTypeConfiguration<In
         builder.Property(m => m.MovementType).HasConversion<string>().HasMaxLength(16);
         builder.Property(m => m.Status).HasConversion<string>().HasMaxLength(16);
         builder.Property(m => m.Notes).HasMaxLength(1024);
+        builder.Property(m => m.LedgerSequence).ValueGeneratedOnAdd();
+        builder.Property(m => m.RequestHash).HasMaxLength(64);
+        builder.HasIndex(m => m.LedgerSequence).IsUnique();
+        builder.HasIndex(m => new { m.CreatedBy, m.IdempotencyKey }).IsUnique();
         builder.HasIndex(m => m.MovementNumber).IsUnique();
         builder.HasIndex(m => m.WarehouseId);
         builder.HasIndex(m => m.CreatedAtUtc);

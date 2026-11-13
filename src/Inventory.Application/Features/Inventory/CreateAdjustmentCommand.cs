@@ -13,7 +13,8 @@ namespace Inventory.Application.Features.Inventory;
 public sealed record CreateAdjustmentCommand(
     Guid WarehouseId,
     IReadOnlyList<MovementLineInput> Lines,
-    string Justification) : IRequest<MovementDto>;
+    string Justification,
+    Guid IdempotencyKey = default) : IRequest<MovementDto>, IInventoryCommand;
 
 public sealed class CreateAdjustmentCommandValidator : AbstractValidator<CreateAdjustmentCommand>
 {
@@ -21,11 +22,15 @@ public sealed class CreateAdjustmentCommandValidator : AbstractValidator<CreateA
     {
         RuleFor(x => x.WarehouseId).NotEmpty();
         RuleFor(x => x.Justification).NotEmpty().WithMessage("Adjustments require a justification.");
-        RuleFor(x => x.Lines).NotEmpty();
+        RuleFor(x => x.IdempotencyKey).NotEmpty();
+        RuleFor(x => x.Lines).NotEmpty()
+            .Must(lines => lines is null || lines.All(l => l is not null) && lines.Select(l => l.ProductId).Distinct().Count() == lines.Count)
+            .WithMessage("A product may appear only once per movement.");
         RuleForEach(x => x.Lines).ChildRules(line =>
         {
             line.RuleFor(l => l.ProductId).NotEmpty();
-            line.RuleFor(l => l.Quantity).GreaterThan(0)
+            line.RuleFor(l => l.UnitCost).PrecisionScale(18, 4, ignoreTrailingZeros: true).GreaterThanOrEqualTo(0);
+            line.RuleFor(l => l.Quantity).PrecisionScale(18, 4, ignoreTrailingZeros: true).GreaterThan(0)
                 .WithMessage("Adjustment count must be positive; use an exit to reach zero stock.");
         });
     }
@@ -56,6 +61,9 @@ public sealed class CreateAdjustmentCommandHandler : IRequestHandler<CreateAdjus
     public async Task<MovementDto> Handle(CreateAdjustmentCommand request, CancellationToken cancellationToken)
     {
         await _permissions.EnsureWarehouseAccessAsync(request.WarehouseId, cancellationToken);
+        var replay = await InventorySupport.FindReplayAsync(
+            _db, _currentUser.UserId ?? Guid.Empty, request, cancellationToken);
+        if (replay is not null) return replay;
         await InventorySupport.EnsureWarehouseExistsAsync(_db, request.WarehouseId, cancellationToken);
         var minimums = await InventorySupport.LoadProductMinimumsAsync(
             _db, request.Lines.Select(l => l.ProductId), cancellationToken);
@@ -78,6 +86,7 @@ public sealed class CreateAdjustmentCommandHandler : IRequestHandler<CreateAdjus
             stock.CheckMinimum(minimums[line.ProductId]);
         }
 
+        movement.SetIdempotency(request.IdempotencyKey, InventorySupport.RequestHash(request));
         _db.InventoryMovements.Add(movement);
         await _db.SaveChangesAsync(cancellationToken);
 

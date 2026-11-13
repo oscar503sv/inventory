@@ -421,6 +421,15 @@ namespace Inventory.Persistence.Migrations
                     b.Property<Guid?>("DestinationWarehouseId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("IdempotencyKey")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("LedgerSequence")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("LedgerSequence"));
+
                     b.Property<string>("MovementNumber")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -436,6 +445,10 @@ namespace Inventory.Persistence.Migrations
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)");
 
+                    b.Property<string>("RequestHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -448,10 +461,16 @@ namespace Inventory.Persistence.Migrations
 
                     b.HasIndex("CreatedAtUtc");
 
+                    b.HasIndex("LedgerSequence")
+                        .IsUnique();
+
                     b.HasIndex("MovementNumber")
                         .IsUnique();
 
                     b.HasIndex("WarehouseId");
+
+                    b.HasIndex("CreatedBy", "IdempotencyKey")
+                        .IsUnique();
 
                     b.ToTable("inventory_movements", (string)null);
                 });
@@ -501,6 +520,10 @@ namespace Inventory.Persistence.Migrations
                     b.Property<decimal>("ReservedQuantity")
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
 
                     b.Property<Guid>("WarehouseId")
                         .HasColumnType("uuid");

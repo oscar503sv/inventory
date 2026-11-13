@@ -17,10 +17,21 @@ namespace Inventory.Persistence.Interceptors;
 /// </summary>
 public sealed class AuditSaveChangesInterceptor : SaveChangesInterceptor
 {
-    private static readonly HashSet<Type> AuditedTypes =
-    [
-        typeof(Product), typeof(Warehouse), typeof(User), typeof(Role), typeof(InventoryMovement)
-    ];
+    // Opt in business fields: new credential/hash/token properties can never enter the audit by default.
+    private static readonly Dictionary<Type, HashSet<string>> AuditedProperties = new()
+    {
+        [typeof(Product)] = [nameof(Product.Sku), nameof(Product.Code), nameof(Product.Name),
+            nameof(Product.Description), nameof(Product.CategoryId), nameof(Product.BrandId),
+            nameof(Product.UnitOfMeasureId), nameof(Product.MinimumStock), nameof(Product.IsActive)],
+        [typeof(Warehouse)] = [nameof(Warehouse.Code), nameof(Warehouse.Name), nameof(Warehouse.Address), nameof(Warehouse.Status)],
+        [typeof(User)] = [nameof(User.Email), nameof(User.UserName), nameof(User.FullName),
+            nameof(User.IsActive), nameof(User.HasAllWarehousesAccess)],
+        [typeof(Role)] = [nameof(Role.Name), nameof(Role.Description)],
+        [typeof(InventoryMovement)] = [nameof(InventoryMovement.MovementNumber), nameof(InventoryMovement.MovementType),
+            nameof(InventoryMovement.WarehouseId), nameof(InventoryMovement.DestinationWarehouseId),
+            nameof(InventoryMovement.Status), nameof(InventoryMovement.CreatedBy),
+            nameof(InventoryMovement.CreatedAtUtc), nameof(InventoryMovement.Notes)]
+    };
 
     private readonly ICurrentUser _currentUser;
     private readonly IDateTimeProvider _clock;
@@ -54,7 +65,7 @@ public sealed class AuditSaveChangesInterceptor : SaveChangesInterceptor
     private void WriteAuditEntries(DbContext context)
     {
         var audited = context.ChangeTracker.Entries()
-            .Where(e => AuditedTypes.Contains(e.Entity.GetType())
+            .Where(e => AuditedProperties.ContainsKey(e.Entity.GetType())
                         && e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
             .ToList();
 
@@ -87,7 +98,7 @@ public sealed class AuditSaveChangesInterceptor : SaveChangesInterceptor
         var values = new Dictionary<string, object?>();
         foreach (var prop in entry.Properties)
         {
-            if (prop.Metadata.IsPrimaryKey()) continue;
+            if (!AuditedProperties[entry.Entity.GetType()].Contains(prop.Metadata.Name)) continue;
             values[prop.Metadata.Name] = original ? prop.OriginalValue : prop.CurrentValue;
         }
 

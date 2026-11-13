@@ -1,3 +1,8 @@
+using System.Security.Cryptography;
+using System.Globalization;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Inventory.Application.Common.Abstractions;
 using Inventory.Application.Common.Exceptions;
 using Inventory.Domain.Inventory;
@@ -9,8 +14,47 @@ namespace Inventory.Application.Features.Inventory;
 /// <summary>Input line for an inventory movement command.</summary>
 public sealed record MovementLineInput(Guid ProductId, decimal Quantity, decimal UnitCost = 0);
 
+public interface IInventoryCommand
+{
+    Guid IdempotencyKey { get; }
+}
+
 internal static class InventorySupport
 {
+    private static readonly JsonSerializerOptions FingerprintJson = new()
+    {
+        Converters = { new CanonicalDecimalConverter() }
+    };
+
+    private sealed class CanonicalDecimalConverter : JsonConverter<decimal>
+    {
+        public override decimal Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+            => reader.GetDecimal();
+
+        public override void Write(Utf8JsonWriter writer, decimal value, JsonSerializerOptions options)
+            => writer.WriteRawValue(value.ToString("G29", CultureInfo.InvariantCulture));
+    }
+
+    public static string RequestHash(IInventoryCommand request)
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            request.GetType().Name + ":" + JsonSerializer.Serialize(request, request.GetType(), FingerprintJson))));
+
+    public static async Task<MovementDto?> FindReplayAsync(
+        IApplicationDbContext db, Guid userId, IInventoryCommand request, CancellationToken ct)
+    {
+        if (request.IdempotencyKey == Guid.Empty)
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                [nameof(request.IdempotencyKey)] = ["A non-empty idempotency key is required."]
+            });
+        var existing = await db.InventoryMovements.AsNoTracking().Include(m => m.Lines)
+            .SingleOrDefaultAsync(m => m.CreatedBy == userId && m.IdempotencyKey == request.IdempotencyKey, ct);
+        if (existing is null) return null;
+        if (existing.RequestHash != RequestHash(request))
+            throw new ConflictException("This idempotency key was already used with a different request.");
+        return existing.ToDto();
+    }
+
     public static MovementDto ToDto(this InventoryMovement m) => new(
         m.Id,
         m.MovementNumber,
@@ -21,7 +65,7 @@ internal static class InventorySupport
         m.CreatedBy,
         m.CreatedAtUtc,
         m.Notes,
-        m.Lines.Select(l => new MovementLineDto(l.ProductId, l.Quantity, l.UnitCost)).ToList());
+        m.Lines.OrderBy(l => l.ProductId).Select(l => new MovementLineDto(l.ProductId, l.Quantity, l.UnitCost)).ToList());
 
     public static async Task<Stock> GetOrCreateStockAsync(
         IApplicationDbContext db, Guid productId, Guid warehouseId, CancellationToken ct)

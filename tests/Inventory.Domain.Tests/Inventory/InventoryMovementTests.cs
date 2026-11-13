@@ -89,6 +89,16 @@ public class InventoryMovementTests
     }
 
     [Fact]
+    public void Duplicate_product_lines_are_rejected_by_the_aggregate()
+    {
+        var product = Guid.NewGuid();
+        var act = () => InventoryMovement.CreateEntry("MV-DUP", _warehouse, _user, _now,
+            [new InventoryMovementLine(product, 1, 0), new InventoryMovementLine(product, 2, 0)]);
+
+        act.Should().Throw<DomainException>().WithMessage("*only once*");
+    }
+
+    [Fact]
     public void Line_with_non_positive_quantity_is_rejected()
     {
         var act = () => new InventoryMovementLine(Guid.NewGuid(), 0, 5);
