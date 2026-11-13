@@ -1,5 +1,6 @@
 using Inventory.Application.Common.Abstractions;
 using Inventory.Application.Common.Exceptions;
+using Inventory.Application.Common.Queries;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Shared.Contracts.Catalog;
@@ -21,8 +22,8 @@ public sealed class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, 
 
     public async Task<PagedResult<ProductDto>> Handle(GetProductsQuery request, CancellationToken cancellationToken)
     {
-        var page = Math.Max(1, request.Page);
-        var pageSize = Math.Clamp(request.PageSize, 1, 200);
+        var page = Math.Clamp(request.Page, 1, QueryPaging.MaxPage);
+        var pageSize = Math.Clamp(request.PageSize, 1, QueryPaging.MaxPageSize);
 
         var query = _db.Products.AsNoTracking();
 
@@ -38,17 +39,13 @@ public sealed class GetProductsQueryHandler : IRequestHandler<GetProductsQuery, 
                 p.Code.ToLower().Contains(term));
         }
 
-        var total = await query.CountAsync(cancellationToken);
-        var items = await query
+        return await query
             .OrderBy(p => p.Name)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
+            .ThenBy(p => p.Id)
             .Select(p => new ProductDto(
                 p.Id, p.Sku, p.Code, p.Name, p.Description,
                 p.CategoryId, p.BrandId, p.UnitOfMeasureId, p.MinimumStock, p.IsActive))
-            .ToListAsync(cancellationToken);
-
-        return new PagedResult<ProductDto>(items, page, pageSize, total);
+            .ToPageAsync(page, pageSize, cancellationToken);
     }
 }
 

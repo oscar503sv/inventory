@@ -16,7 +16,8 @@ public class InventoryFlowTests
 {
     private static AppDbContext NewDb() =>
         new(new DbContextOptionsBuilder<AppDbContext>()
-                .UseInMemoryDatabase($"inv-{Guid.NewGuid()}").Options,
+                .UseInMemoryDatabase($"inv-{Guid.NewGuid()}")
+                .AddInterceptors(new InMemoryLedgerSequenceInterceptor()).Options,
             new NoOpDomainEventDispatcher());
 
     private static async Task<(Guid productId, Guid warehouseId)> SeedAsync(AppDbContext db)

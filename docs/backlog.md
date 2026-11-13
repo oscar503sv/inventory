@@ -4,7 +4,7 @@ Fecha de planificación: 2026-11-12.
 
 Objetivo: cerrar y validar la fase 1 del backend, construir una interfaz operativa y avanzar después con compras y reportes.
 
-Este documento reúne el estado histórico, los pendientes y la planificación acordada. Los puntos 1, 2 y 3 están implementados y validados localmente; los puntos 4–6 siguen pendientes. Las casillas y la evidencia indican el estado comprobado de cada tarea. Los requisitos se mantienen en [producto.md](producto.md) y las decisiones técnicas en [arquitectura.md](arquitectura.md).
+Este documento reúne el estado histórico, los pendientes y la planificación acordada. Los puntos 1–4 están implementados y validados localmente; los puntos 5 y 6 siguen pendientes. Las casillas y la evidencia indican el estado comprobado de cada tarea. Los requisitos se mantienen en [producto.md](producto.md) y las decisiones técnicas en [arquitectura.md](arquitectura.md).
 
 Consolidación documental: 2026-11-12. El contenido de `docs/project.md` se integró aquí; las instrucciones de ejecución están en el [README](../README.md).
 
@@ -12,7 +12,7 @@ Consolidación documental: 2026-11-12. El contenido de `docs/project.md` se inte
 
 El estado histórico del 2026-06-08 reporta la base y gran parte del backend de fase 1 implementadas: 41 pruebas aprobadas (Domain 27, Authorization 7, Application 7), compilación sin advertencias ni errores y pruebas de aplicación con EF en memoria. Es evidencia documental anterior; no se volvieron a ejecutar esas comprobaciones al consolidar estos archivos.
 
-La revisión de código del 2026-11-12 identificó los problemas de autorización, auditoría y concurrencia detallados en el paso 2. Se corrigieron y validaron localmente ese mismo día: **76 pruebas aprobadas** (Domain 28, Authorization 7, Application 7, API/PostgreSQL 34), compilación Release sin advertencias ni errores. La validación incluye acceso por bodega, auditoría sin credenciales, idempotencia, errores y concurrencia sobre PostgreSQL real. El punto 3 agrega administración de accesos y sesiones (véase su evidencia de cierre). Quedan pendientes las funciones de los puntos 4–6; esto no equivale al cierre de toda la fase 1 ni a una validación de producción.
+La revisión de código del 2026-11-12 identificó los problemas de autorización, auditoría y concurrencia detallados en el paso 2. Se corrigieron y validaron localmente ese mismo día: **76 pruebas aprobadas** (Domain 28, Authorization 7, Application 7, API/PostgreSQL 34), compilación Release sin advertencias ni errores. La validación incluye acceso por bodega, auditoría sin credenciales, idempotencia, errores y concurrencia sobre PostgreSQL real. El punto 3 agrega administración de accesos y sesiones (véase su evidencia de cierre). El punto 4 agrega consultas operativas, auditoría paginada y readiness (véase su evidencia de cierre). Quedan pendientes las funciones de los puntos 5 y 6; esto no equivale al cierre de toda la fase 1 ni a una validación de producción.
 
 ### Funciones documentadas en la fase 1
 
@@ -55,9 +55,12 @@ La revisión de código del 2026-11-12 identificó los problemas de autorizació
 | Products | `GET/POST /products`, `GET/PUT/DELETE /products/{id}` |
 | Catalog | `GET/POST /categories`, `/brands`, `/units-of-measure` |
 | Warehouses | `GET/POST /warehouses`, `PUT /warehouses/{id}` |
-| Inventory | `POST /inventory/{entries,exits,transfers,adjustments}`, `GET /inventory/{kardex,stock}` |
+| Inventory | `POST /inventory/{entries,exits,transfers,adjustments}`, `GET /inventory/{kardex,stock,movements}`, `GET /inventory/movements/{id}` |
+| Audit | `GET /audit-logs` (paginado) |
 | Users/Roles | `GET/POST /users`, `GET /roles` |
 
+
+Las consultas paginadas de stock y kardex están en `/api/v2/inventory/{stock,kardex}`; v1 conserva sus arreglos para compatibilidad.
 
 ### Verificación histórica
 
@@ -73,10 +76,10 @@ La revisión de código del 2026-11-12 identificó los problemas de autorizació
 ### Límites actuales
 
 - Usuarios: creación, listado, edición, activación/desactivación y administración de roles, excepciones y alcances disponibles; véase el punto 3.
-- Auditoría: escritura mediante interceptor con propiedades permitidas y limpieza de campos sensibles históricos; falta la consulta operativa.
+- Auditoría: escritura con propiedades permitidas, asignaciones y alcances; consulta paginada protegida por `audit.read`, con filtros por actor, entidad, acción y fechas.
 - Reservas: `ReservedQuantity` y operaciones Reserve/Release en el dominio, sin casos de uso ni endpoints.
 - Sesiones: logout y revocación administrativa de refresh tokens disponibles. Los JWT conservan su vencimiento y verifican usuario activo y permisos actuales; sin blacklist en Redis.
-- `/health` comprueba que el proceso está activo; falta verificar disponibilidad de dependencias.
+- `/health` comprueba el proceso; `/ready` comprueba PostgreSQL y migraciones, con respuesta `503` cuando la base no está preparada.
 - Redis y RabbitMQ están provisionados en Docker, pero no integrados funcionalmente. El despachador de eventos registra mensajes en el proceso.
 - `Shared.Events` es un espacio reservado para la fase 3.
 - Fases 2–4 y frontend sin iniciar según el estado documentado.
@@ -159,7 +162,7 @@ La revisión inicial identificó consultas de stock y kardex sin comprobación d
 - Migración incluida: `20261113035606_InventoryIntegrity`. Agrega versiones, idempotencia e índices únicos y `LedgerSequence` para el kardex. Se prueba una actualización desde la migración inicial con datos existentes: conserva el orden histórico, limpia auditoría y continúa la secuencia. Otra prueba confirma saldos correctos aunque el reloj retroceda. El modelo EF coincide con las migraciones.
 - El contrato y los reintentos están documentados en el [README](../README.md#contrato-de-movimientos-e-integridad) y las decisiones en [arquitectura.md](arquitectura.md#integridad-de-movimientos--punto-2). El workflow existente ejecuta la misma validación en GitHub; esta evidencia corresponde a la ejecución local.
 
-**Primera entrega completada localmente:** puntos 1 y 2 cerrados. El punto 3 se documenta a continuación; los puntos 4–6 mantienen sus pendientes.
+**Primera entrega completada localmente:** puntos 1 y 2 cerrados. Los puntos 3 y 4 se documentan a continuación. Los puntos 5 y 6 siguen pendientes.
 
 ## 3. Completar usuarios, permisos y sesiones
 
@@ -188,16 +191,31 @@ La revisión inicial identificó consultas de stock y kardex sin comprobación d
 
 ## 4. Completar auditoría y consultas operativas
 
-- [ ] Crear una consulta paginada de auditoría protegida por `audit.read`.
-- [ ] Incorporar filtros útiles para investigar operaciones: usuario, entidad, acción y fechas.
-- [ ] Registrar cambios en roles, permisos y acceso a bodegas.
-- [ ] Incorporar listado y detalle de movimientos con sus controles de autorización.
-- [ ] Paginar las consultas voluminosas y definir un orden estable.
-- [ ] Conservar el saldo correcto del kardex al filtrar por fechas y paginar resultados.
-- [ ] Agregar una comprobación de disponibilidad de PostgreSQL, diferenciada de la comprobación de que el proceso está activo.
-- [ ] Preparar configuración por ambiente y documentar los requisitos para ejecutar la API.
+- [x] Crear una consulta paginada de auditoría protegida por `audit.read`.
+- [x] Incorporar filtros útiles para investigar operaciones: usuario, entidad, acción y fechas.
+- [x] Registrar cambios en roles, permisos y acceso a bodegas.
+- [x] Incorporar listado y detalle de movimientos con sus controles de autorización.
+- [x] Paginar las consultas voluminosas y definir un orden estable.
+- [x] Conservar el saldo correcto del kardex al filtrar por fechas y paginar resultados.
+- [x] Agregar una comprobación de disponibilidad de PostgreSQL, diferenciada de la comprobación de que el proceso está activo.
+- [x] Preparar configuración por ambiente y documentar los requisitos para ejecutar la API.
 
 **Criterio de finalización:** se puede rastrear quién realizó cada operación, consultar movimientos y auditoría de forma controlada, y detectar si la API está preparada para atender solicitudes.
+
+### Evidencia de cierre — 2026-11-12
+
+- Trabajo realizado en `/tmp/inventory-point4`, rama `feat/operational-audit`, sobre `dev` (`abdec97`), incorporando el cierre del punto 3. Entrega en `dev`; el worktree temporal se retira tras integrar. No se agregaron dependencias ni se modificó el esquema o las migraciones.
+- Validación reproducible: `bash scripts/validate.sh`, cargando la conexión de pruebas del entorno local. Compilación Release con **0 advertencias y 0 errores**; **143 pruebas aprobadas, 0 fallidas, 0 omitidas** (Domain 28, Authorization 7, Application 7, API/configuración 101). De las 101 del proyecto API, **82 usan PostgreSQL real** y 19 validan configuración sin base. Formato .NET de los archivos C# modificados y `git diff --check` correctos. Resultados TRX conservados en `TestResults/` del checkout principal con prefijo `point4_`, junto con `point4-validation.log`, antes de retirar el worktree.
+- `GET /api/v1/audit-logs` exige `audit.read`. Se prueban filtros combinados por actor, entidad, acción y fechas inclusivas, JSON de valores anteriores/nuevos, paginación estable con fechas iguales, páginas vacías, autenticación y Deny sobre roles de administrador.
+- El interceptor registra altas, cambios y bajas de roles, permisos, asignaciones, excepciones Allow/Deny y alcances. Se verifican el actor y correlación reales de HTTP, las referencias de rol/bodega/usuario, el paso a acceso global y la eliminación de alcances. Un rollback descarta el cambio y su auditoría; las pruebas previas de exclusión de credenciales siguen pasando. Se verifica por HTTP el reemplazo de accesos del punto 3, incluidas altas, modificación de una excepción conservando su ID y bajas de las tres clases de asignaciones.
+- `GET /api/v1/inventory/movements` devuelve resúmenes paginados con filtros por producto, bodega, tipo y fechas. `GET /api/v1/inventory/movements/{id}` devuelve el detalle con líneas. Las pruebas cubren acceso global, ambas bodegas, solo origen, solo destino y ningún alcance; las transferencias completas exigen ambas bodegas. Los totales se filtran antes de paginar y los errores devuelven ProblemDetails.
+- `GET /api/v2/inventory/{stock,kardex}` reutiliza `PagedResult` y aplica un máximo de 200 filas. Se conservan las respuestas heredadas de v1. Productos comparte el paginador y un desempate estable por UUID. Se validan páginas, límites y fechas UTC. Swagger de Development separa las versiones y sus contratos.
+- Kardex pagina en PostgreSQL y calcula el saldo con el historial anterior al filtro. Las pruebas cubren entrada/salida, múltiples ajustes absolutos, transferencia en ambas bodegas, filtros inclusivos, página intermedia, página vacía y reloj regresivo; el ajuste omitido por fecha sigue afectando el saldo. Las pruebas de EF en memoria reproducen la secuencia generada por PostgreSQL sin debilitar sus aserciones.
+- `/health` permanece independiente de la base. `/ready` comprueba conexión y migraciones pendientes, con timeout de 3 segundos; las pruebas verifican `200` con la base lista y `503` sin datos internos cuando PostgreSQL está caído o faltan migraciones, manteniendo liveness en `200` y recuperando readiness al aplicar las migraciones.
+- Configuración común y archivos para Development, Staging y Production. Se validan conexión, emisor/audiencia, clave JWT y duraciones, además de la pareja opcional de credenciales de bootstrap. No existe clave JWT de respaldo; Staging/Production no migran automáticamente ni crean un administrador de contraseña conocida. `--migrate-only` permite inicialización explícita. Las variables y pasos de ejecución están en `.env.example` y el [README](../README.md#ambientes-y-disponibilidad).
+- El workflow existente utiliza el mismo script de validación y las pruebas generan su propia clave JWT, sin cambiar CI. Esta evidencia corresponde a ejecución local. Las consultas y las decisiones están en [README](../README.md#consultas-operativas) y [arquitectura.md](arquitectura.md#auditoría-y-consultas-operativas--punto-4).
+
+**Seguimiento:** se incorporó el punto 3 desde `dev` sin perder su administración de usuarios y sesiones. El contrato de auditoría global y la paginación v2 ya están disponibles para el frontend futuro; los puntos 5 y 6 siguen pendientes. La duplicación previa de reglas de líneas en validadores de movimientos se documentó para un PR independiente.
 
 ## 5. Construir el frontend del MVP
 

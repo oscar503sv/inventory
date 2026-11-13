@@ -1,14 +1,16 @@
 using System.Text;
 using System.Threading.RateLimiting;
 using Inventory.API.Authentication;
+using Inventory.API.Configuration;
+using Inventory.API.Health;
 using Inventory.API.Middleware;
 using Inventory.Application;
 using Inventory.Application.Common.Abstractions;
 using Inventory.Infrastructure;
-using Inventory.Infrastructure.Security;
 using Inventory.Persistence;
 using Inventory.Persistence.Seed;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -18,6 +20,7 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Serilog;
+using Serilog.Formatting.Json;
 using Shared.Authorization;
 using Shared.Authorization.AspNetCore;
 
@@ -31,12 +34,14 @@ try
         .ReadFrom.Configuration(context.Configuration)
         .ReadFrom.Services(services)
         .Enrich.FromLogContext()
-        .WriteTo.Console());
+        .WriteTo.Console(new JsonFormatter()));
 
     var config = builder.Configuration;
+    var settings = RuntimeSettings.Load(config, builder.Environment);
 
     // --- Application composition (Clean Architecture layers) ---
-    builder.Services.AddPersistence(config.GetConnectionString("Postgres")!);
+    builder.Services.AddPersistence(settings.Postgres);
+    builder.Services.AddSingleton(settings.Admin);
     builder.Services.AddApplication();
     builder.Services.AddInfrastructure(config);
 
@@ -48,7 +53,7 @@ try
     builder.Services.AddProblemDetails();
 
     // --- AuthN: JWT bearer ---
-    var jwt = config.GetSection(JwtOptions.SectionName).Get<JwtOptions>()!;
+    var jwt = settings.Jwt;
     builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         .AddJwtBearer(options =>
         {
@@ -91,7 +96,8 @@ try
                 _ => new FixedWindowRateLimiterOptions { PermitLimit = 100, Window = TimeSpan.FromMinutes(1) }));
     });
 
-    builder.Services.AddHealthChecks();
+    builder.Services.AddHealthChecks().AddCheck<PostgresReadinessCheck>("postgres",
+        tags: ["ready"], timeout: TimeSpan.FromSeconds(3));
 
     // --- Observability: OpenTelemetry tracing + Prometheus metrics (PRD: Observability) ---
     builder.Services.AddOpenTelemetry()
@@ -105,6 +111,8 @@ try
     builder.Services.AddSwaggerGen(options =>
     {
         options.SwaggerDoc("v1", new OpenApiInfo { Title = "Inventory ERP API", Version = "v1" });
+        options.SwaggerDoc("v2", new OpenApiInfo { Title = "Inventory ERP paged queries", Version = "v2" });
+        options.DocInclusionPredicate((document, api) => (api.GroupName ?? "v1") == document);
         options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
         {
             Name = "Authorization",
@@ -124,12 +132,17 @@ try
     // --- Pipeline ---
     app.UseMiddleware<CorrelationIdMiddleware>();
     app.UseMiddleware<ExceptionHandlingMiddleware>();
+    app.UseStatusCodePages(ProblemResponses.WriteStatusAsync);
     app.UseSerilogRequestLogging();
 
     if (app.Environment.IsDevelopment())
     {
         app.UseSwagger();
-        app.UseSwaggerUI();
+        app.UseSwaggerUI(options =>
+        {
+            options.SwaggerEndpoint("/swagger/v1/swagger.json", "Inventory ERP v1");
+            options.SwaggerEndpoint("/swagger/v2/swagger.json", "Paged inventory queries v2");
+        });
     }
 
     app.UseRateLimiter();
@@ -137,10 +150,16 @@ try
     app.UseAuthorization();
 
     app.MapControllers();
-    app.MapHealthChecks("/health");
+    app.MapHealthChecks("/health", new HealthCheckOptions { Predicate = _ => false }).AllowAnonymous();
+    app.MapHealthChecks("/ready", new HealthCheckOptions
+    {
+        Predicate = check => check.Tags.Contains("ready"),
+        ResponseWriter = ReadinessResponse.WriteAsync
+    }).AllowAnonymous();
     app.MapPrometheusScrapingEndpoint(); // exposes /metrics
 
-    await MigrateAndSeedAsync(app);
+    if (settings.InitializeDatabase || args.Contains("--migrate-only"))
+        await MigrateAndSeedAsync(app);
 
     if (!args.Contains("--migrate-only"))
         app.Run();

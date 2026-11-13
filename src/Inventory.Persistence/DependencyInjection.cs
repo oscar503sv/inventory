@@ -3,6 +3,7 @@ using Inventory.Persistence.Interceptors;
 using Inventory.Persistence.Seed;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Inventory.Persistence;
 
@@ -21,6 +22,7 @@ public static class DependencyInjection
         });
 
         services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<AppDbContext>());
+        services.TryAddSingleton(new AdminSeedSettings());
         services.AddScoped<DatabaseSeeder>();
 
         return services;

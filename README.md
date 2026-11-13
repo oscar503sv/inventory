@@ -13,13 +13,16 @@ Sistema de inventario para múltiples bodegas. Backend modular con destino .NET 
 Requisitos: SDK indicado en `global.json`, runtime ASP.NET Core 10 y PostgreSQL 16 o superior. Para los scripts se necesitan Bash y `psql`. El usuario PostgreSQL debe poder crear bases (`CREATEDB`); las pruebas crean y eliminan únicamente una base temporal con nombre `inventario_erp_test_<uuid>`.
 
 ```bash
-cp .env.example .env # Completar la contraseña; si ya existe .env, conservarlo.
+cp .env.example .env # Si ya existe, conservarlo y agregar las variables nuevas.
+# Completar PostgreSQL y Jwt__SigningKey. Generar la clave una sola vez: openssl rand -base64 48
 bash scripts/init-db.sh
 source .env
 dotnet run --project src/Inventory.API --launch-profile http
 ```
 
-La configuración local usa `localhost:5432`, el usuario `ozkar` y la base `inventario_erp`. Las credenciales se guardan en `.env`, excluido de Git. En este entorno ya está configurado con las credenciales proporcionadas. `init-db.sh` crea la base si no existe y aplica migraciones y datos iniciales sin levantar el servidor HTTP. Es idempotente y no elimina datos existentes. El arranque de la API también migra y siembra; una falla detiene el inicio y devuelve un código de error.
+La clave JWT privada es obligatoria y debe configurarse en `Jwt__SigningKey`; los valores vacíos o `CHANGE_ME` impiden el arranque. No existe una clave compartida de respaldo en appsettings.
+
+La configuración local usa `localhost:5432`, el usuario `ozkar` y la base `inventario_erp`. Las credenciales se guardan en `.env`, excluido de Git. En este entorno ya está configurado con las credenciales proporcionadas. `init-db.sh` crea la base si no existe y aplica migraciones y datos iniciales sin levantar el servidor HTTP. Es idempotente y no elimina datos existentes. En Development y Testing el arranque también migra y siembra; una falla detiene el inicio y devuelve un código de error. En Staging y Production la inicialización automática está desactivada por defecto.
 
 La API se publica en `http://localhost:5092` y Swagger en `/swagger`. Administrador inicial de desarrollo: `admin@inventory.local` / `Admin#12345`, con acceso a todas las bodegas.
 
@@ -98,3 +101,55 @@ Ejemplo del cuerpo de actualización de accesos:
 `type` es `1` (Allow) o `2` (Deny). Deny prevalece sobre roles y Allow mediante el motor existente. El acceso global exige `warehouseIds: []`; retirarlo deja únicamente las bodegas enviadas. UUID inexistentes producen `404`, entradas inválidas `400` y correos duplicados `409`, sin guardar modificaciones parciales. La creación también comprueba todos los UUID de bodegas recibidos.
 
 **Política de sesiones:** logout y revocación administrativa invalidan la renovación, pero los JWT emitidos continúan hasta su expiración (15 minutos por defecto, más la tolerancia de reloj de 30 segundos). Los permisos y alcances se consultan en PostgreSQL en cada solicitud; no dependen de los roles antiguos del JWT. Cada JWT comprueba además que el usuario siga activo: al desactivarlo devuelve `401`, y login/refresh denegados conservan el `403` del contrato existente. Reactivar exige un nuevo login para obtener refresh tokens; un JWT previo aún vigente vuelve a ser aceptado al reactivar. No se añade una blacklist ni nuevas dependencias o migraciones.
+
+## Consultas operativas
+
+| Endpoint | Permiso | Filtros |
+|---|---|---|
+| `GET /api/v1/audit-logs` | `audit.read` | `userId` (actor), `entity`, `action`, `fromUtc`, `toUtc` |
+| `GET /api/v1/inventory/movements` | `inventory.read` | `warehouseId`, `productId`, `type`, `fromUtc`, `toUtc` |
+| `GET /api/v1/inventory/movements/{id}` | `inventory.read` | Detalle por UUID |
+| `GET /api/v2/inventory/stock` | `inventory.read` | `warehouseId`, `productId` |
+| `GET /api/v2/inventory/kardex` | `inventory.read` | `productId` y `warehouseId` obligatorios, `fromUtc`, `toUtc` |
+
+Los listados de esta tabla usan el contrato existente `PagedResult`: `{ items, page, pageSize, totalCount, totalPages }`. `page` empieza en 1; `pageSize` vale 20 por defecto y admite de 1 a 200. Los parámetros inválidos devuelven `400 ProblemDetails`. Una página posterior a la última devuelve `items: []` conservando el total filtrado. Productos también mantiene su paginación, ahora con desempate estable por UUID.
+
+Los filtros de fechas son inclusivos y reciben ISO 8601 UTC, por ejemplo `2026-11-12T00:00:00Z`. Los tipos de movimiento son `Entry`, `Exit`, `Transfer` y `Adjustment`; las acciones de auditoría son `Created`, `Updated` y `Deleted`. Los filtros se combinan. Auditoría ordena por fecha descendente e ID descendente; movimientos por secuencia descendente; stock por bodega y producto; kardex por secuencia ascendente. La paginación es por desplazamiento y refleja el estado al consultar, no una instantánea persistida entre solicitudes.
+
+Las consultas de stock y kardex de `/api/v1` conservan su respuesta histórica en forma de arreglo para compatibilidad. Los clientes nuevos deben usar `/api/v2` para disponer de paginación. Swagger de Development separa ambos contratos en `/swagger/v1/swagger.json` y `/swagger/v2/swagger.json`.
+
+El total de movimientos y stock solo cuenta filas autorizadas. Leer un movimiento completo de transferencia exige acceso a ambas bodegas; si falta uno de los alcances, se omite del listado y su detalle devuelve `403`. Consultar un filtro explícito de bodega fuera de alcance devuelve `403`. Un UUID de movimiento inexistente devuelve `404`. El kardex de una bodega autorizada puede mostrar su parte de una transferencia sin revelar el detalle de la otra bodega.
+
+Los saldos del kardex se calculan con el historial anterior completo, incluyendo ajustes, antes de presentar la página y el rango de fechas. No se reinicia el saldo al cambiar de página. La consulta paginada se ejecuta en PostgreSQL y no carga todo el historial en memoria.
+
+`audit.read` es un permiso global de investigación: permite leer la auditoría del sistema, independientemente del alcance de bodegas. Debe otorgarse solo a quienes deban investigar cambios de acceso y operaciones. Se registran roles, permisos, sus asignaciones, excepciones Allow/Deny y alcances, además de las entidades ya auditadas. Los JSON nuevos incluyen el ID de la entidad/asignación y sus referencias; los registros históricos conservan el contenido disponible al crearse. Las bajas de asignaciones conservan los valores anteriores. Auditoría y cambio de negocio se guardan en la misma transacción; una reversión descarta ambos. Las operaciones de administración del punto 3 también quedan cubiertas por este interceptor.
+
+Los errores de las consultas, los rechazos de autorización y readiness usan `application/problem+json`. El `correlationId` permite relacionarlos con la auditoría y los logs estructurados; las respuestas de error no incluyen SQL, credenciales ni stack traces.
+
+## Ambientes y disponibilidad
+
+| Ambiente | Inicialización al arrancar | Administrador inicial | Swagger |
+|---|---|---|---|
+| Development | Sí | Administrador local documentado, salvo configuración explícita | Sí |
+| Testing | Sí | Administrador de prueba; la suite genera su propia clave JWT | No |
+| Staging / Production | No | Solo si se proporcionan credenciales privadas explícitas al inicializar | No |
+
+`appsettings.json` conserva configuración común sin contraseñas ni clave JWT; los archivos de ambiente definen los comportamientos de inicialización. Las variables de entorno tienen precedencia. Se validan al arrancar conexión PostgreSQL, emisor y audiencia JWT, clave de firma de al menos 32 bytes, duración del acceso (1–60 minutos), refresh (1–30 días) y la pareja opcional de credenciales iniciales. `Database__InitializeOnStartup` permite configurar explícitamente la inicialización; `--migrate-only` la ejecuta de forma deliberada y termina sin abrir HTTP.
+
+Para Staging/Production, proporcionar `ConnectionStrings__Postgres`, `Jwt__SigningKey`, `ASPNETCORE_ENVIRONMENT` y, si difieren de los valores comunes, `Jwt__Issuer`/`Jwt__Audience`. Crear una base independiente y aplicar las migraciones con un rol autorizado antes de servir tráfico:
+
+```bash
+# Inyectar secretos mediante el entorno o el gestor de secretos del despliegue.
+# Para crear el primer administrador, definir también BootstrapAdmin__Email y
+# BootstrapAdmin__Password (privada, de al menos 12 caracteres).
+dotnet run --project src/Inventory.API --no-launch-profile -- --migrate-only
+# Retirar la contraseña inicial del entorno una vez provisionada la cuenta.
+dotnet run --project src/Inventory.API --no-launch-profile
+```
+
+Sin esa pareja de credenciales, Production/Staging no crean un administrador de contraseña conocida. La inicialización no cambia contraseñas ni roles de usuarios existentes. Mantener la misma clave JWT privada entre reinicios y entre instancias. `.env` solo sirve para desarrollo y sigue excluido de Git; `.env.example` documenta las variables nuevas. Redis y RabbitMQ no son dependencias activas en esta entrega.
+
+- `/health`: liveness pública; devuelve `200 Healthy` sin consultar PostgreSQL.
+- `/ready`: readiness pública; comprueba conexión y migraciones pendientes con un presupuesto de 3 segundos. Devuelve `200` cuando la base está preparada y `503 ProblemDetails` cuando no lo está, sin publicar detalles internos de conexión. También funciona al iniciar con inicialización automática desactivada y PostgreSQL caído.
+
+La suite incluye filtros y permisos de auditoría, altas/cambios/bajas de asignaciones y acceso global, rollback de auditoría, movimientos entre distintas bodegas, paginación con fechas y ajustes, orden con fechas iguales o reloj regresivo, configuración inválida, separación Swagger y readiness ante caída de PostgreSQL o migraciones pendientes. Todos los casos de persistencia usan bases temporales.

@@ -1,4 +1,3 @@
-using Inventory.API.Authentication;
 using Inventory.Application.Common.Exceptions;
 using Inventory.Domain.Common;
 using Microsoft.AspNetCore.Mvc;
@@ -53,14 +52,9 @@ public sealed class ExceptionHandlingMiddleware
             Detail = status == StatusCodes.Status500InternalServerError ? "An unexpected error occurred." : exception.Message
         };
 
-        if (context.Items.TryGetValue(CurrentUser.CorrelationIdItem, out var correlationId))
-            problem.Extensions["correlationId"] = correlationId;
-
         if (exception is ValidationException validation)
             problem.Extensions["errors"] = validation.Errors;
 
-        context.Response.StatusCode = status;
-        context.Response.ContentType = "application/problem+json";
-        await context.Response.WriteAsJsonAsync(problem);
+        await ProblemResponses.WriteAsync(context, problem);
     }
 }

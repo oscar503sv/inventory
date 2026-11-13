@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Microsoft.AspNetCore.RateLimiting;
+using System.Security.Cryptography;
 
 namespace Inventory.API.IntegrationTests;
 
@@ -62,6 +63,7 @@ public sealed class PostgresApiFixture : IAsyncLifetime
         {
             builder.UseEnvironment("Testing");
             builder.UseSetting("ConnectionStrings:Postgres", connection);
+            builder.UseSetting("Jwt:SigningKey", Convert.ToBase64String(RandomNumberGenerator.GetBytes(48)));
             builder.ConfigureServices(services =>
             {
                 services.AddDbContext<AppDbContext>(options => options.AddInterceptors(gate));

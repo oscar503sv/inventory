@@ -20,7 +20,7 @@ Solución: `InventoryErp.slnx`. Backend: C# y .NET 10.
 | `Shared.Contracts` | DTO y contratos compartidos. |
 | `Shared.Events` | Espacio reservado para contratos de integración de la fase 3. |
 | `Shared.Authorization` | Códigos de permisos, motor de permisos efectivos y políticas de ASP.NET Core. |
-| `tests/*` | Pruebas de dominio, autorización y aplicación. |
+| `tests/*` | Pruebas de dominio, autorización, aplicación, API/PostgreSQL y configuración. |
 
 ## Contextos del negocio
 
@@ -205,3 +205,17 @@ Phase 1 keeps PostgreSQL as the only store. Active Redis caching is wired in Pha
 - `LedgerSequence`, generada por PostgreSQL, determina el orden del kardex. Los movimientos que dependen de un saldo confirmado reciben una secuencia posterior; los que leyeron una versión obsoleta fallan. Los huecos por transacciones revertidas son normales. Las fechas siguen siendo informativas y se conservan los saldos previos al aplicar filtros de fecha.
 - Los productos repetidos se rechazan tanto en validación como en el agregado. No se suman automáticamente, especialmente porque un ajuste representa una cantidad absoluta. Las cantidades y costos se validan contra la precisión persistida `numeric(18,4)`; la huella normaliza representaciones numéricas equivalentes como `10` y `10.0`.
 - Auditoría serializa solo propiedades de negocio autorizadas explícitamente por entidad. La migración elimina campos sensibles de registros históricos como excepción de seguridad a su inmutabilidad; una reversión de esquema no restaura esas credenciales.
+
+## Auditoría y consultas operativas — punto 4
+
+- La auditoría incorpora `Permission`, `UserRole`, `RolePermission`, `UserPermissionOverride` y `WarehouseScope`, además de las entidades existentes. Las propiedades siguen una lista explícita; se incluye la clave primaria para identificar el objeto o asignación. No hay cambios de esquema ni dependencias nuevas. El actor procede de `ICurrentUser`, con fecha, correlación y valores anteriores/nuevos dentro del mismo `SaveChanges` que guarda el cambio. Las asignaciones eliminadas y el acceso global quedan registrados. Las operaciones de administración incorporadas en el punto 3 utilizan el mismo interceptor.
+- `GET /api/v1/audit-logs` exige `audit.read`, un permiso de investigación global que no se limita por bodega. Filtra actor, entidad, acción y fechas; devuelve JSON de valores como objetos, no como cadenas JSON anidadas. No hay modificaciones ni borrados de auditoría expuestos por la API.
+- Listado y detalle de movimientos exigen `inventory.read`. Una transferencia completa exige acceso a ambas bodegas. El filtro de visibilidad se aplica antes de contar o paginar, evitando revelar totales o destinos fuera de alcance. El detalle devuelve `403` para un movimiento existente fuera de alcance y `404` para un UUID inexistente.
+- Las consultas nuevas reutilizan `PagedResult<T>` y `QueryPaging` (20 filas por defecto, máximo 200), con validación común de páginas y rangos UTC. Productos reutiliza el mismo paginador y añade el UUID como desempate. El detalle carga las líneas con eager loading; los listados proyectan únicamente los campos necesarios.
+- Las respuestas paginadas de stock/kardex se publican en `/api/v2/inventory` para conservar los arreglos de v1. Ambas versiones reutilizan el filtro de stock y el cálculo del kardex; Swagger separa los documentos por versión.
+- El cálculo del kardex consulta el último ajuste anterior a cada fila y suma los deltas posteriores a ese ajuste. Las subconsultas consultan el historial sin restringirlo por fechas ni página; la selección de filas se pagina en PostgreSQL. Así se conserva el saldo de apertura con ajustes absolutos, fechas iguales o un reloj que retrocede. La versión heredada reutiliza el mismo cálculo.
+- La paginación es por desplazamiento, con un orden determinista: auditoría por fecha/UUID descendentes, movimientos por secuencia descendente, stock por bodega/producto y kardex por secuencia ascendente. No ofrece una instantánea entre solicitudes independientes que ocurran mientras se insertan datos.
+- `/health` excluye las comprobaciones de dependencias. `/ready` comprueba conexión y migraciones aplicadas con timeout de 3 segundos, y emite `503 ProblemDetails` sin detalles de conexión si no está preparada la base. Ambos endpoints son públicos para probes. Los errores HTTP sin cuerpo y los errores de aplicación comparten el escritor de ProblemDetails con correlación.
+- La configuración común no contiene una clave JWT ni credenciales de RabbitMQ. Development/Testing inicializan la base por defecto; Staging/Production requieren inicialización deliberada y no crean un administrador conocido. Las credenciales iniciales de estos últimos se reciben por entorno. La conexión, JWT y credenciales opcionales se validan antes de construir el host. Los logs operativos usan JSON con el contexto de correlación existente.
+
+Duplicación previa observada, fuera del alcance del punto 4: los cuatro validadores de movimientos repiten reglas de líneas. Su extracción debe tratarse en un PR enfocado, sin mezclarla con estas consultas.

@@ -16,11 +16,13 @@ public sealed class DatabaseSeeder
 
     private readonly AppDbContext _db;
     private readonly IPasswordHasher _passwordHasher;
+    private readonly AdminSeedSettings _admin;
 
-    public DatabaseSeeder(AppDbContext db, IPasswordHasher passwordHasher)
+    public DatabaseSeeder(AppDbContext db, IPasswordHasher passwordHasher, AdminSeedSettings admin)
     {
         _db = db;
         _passwordHasher = passwordHasher;
+        _admin = admin;
     }
 
     public async Task SeedAsync(CancellationToken cancellationToken = default)
@@ -67,16 +69,18 @@ public sealed class DatabaseSeeder
 
     private async Task SeedAdminUserAsync(CancellationToken ct)
     {
-        if (await _db.Users.AnyAsync(u => u.Email == DefaultAdminEmail, ct))
+        if (_admin.Email is null || _admin.Password is null) return;
+        var email = _admin.Email.Trim().ToLowerInvariant();
+        if (await _db.Users.AnyAsync(u => u.Email == email, ct))
             return;
 
         var adminRole = await _db.Roles.FirstAsync(r => r.Name == RoleDefinitions.Administrator, ct);
 
         var admin = User.Create(
-            email: DefaultAdminEmail,
+            email: email,
             userName: "admin",
             fullName: "System Administrator",
-            passwordHash: _passwordHasher.Hash(DefaultAdminPassword),
+            passwordHash: _passwordHasher.Hash(_admin.Password),
             hasAllWarehousesAccess: true);
 
         admin.AssignRole(adminRole.Id);

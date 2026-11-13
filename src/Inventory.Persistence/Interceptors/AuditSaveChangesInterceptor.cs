@@ -27,6 +27,12 @@ public sealed class AuditSaveChangesInterceptor : SaveChangesInterceptor
         [typeof(User)] = [nameof(User.Email), nameof(User.UserName), nameof(User.FullName),
             nameof(User.IsActive), nameof(User.HasAllWarehousesAccess)],
         [typeof(Role)] = [nameof(Role.Name), nameof(Role.Description)],
+        [typeof(Permission)] = [nameof(Permission.Code), nameof(Permission.Description)],
+        [typeof(UserRole)] = [nameof(UserRole.UserId), nameof(UserRole.RoleId)],
+        [typeof(RolePermission)] = [nameof(RolePermission.RoleId), nameof(RolePermission.PermissionId)],
+        [typeof(UserPermissionOverride)] = [nameof(UserPermissionOverride.UserId),
+            nameof(UserPermissionOverride.PermissionId), nameof(UserPermissionOverride.OverrideType)],
+        [typeof(WarehouseScope)] = [nameof(WarehouseScope.UserId), nameof(WarehouseScope.WarehouseId)],
         [typeof(InventoryMovement)] = [nameof(InventoryMovement.MovementNumber), nameof(InventoryMovement.MovementType),
             nameof(InventoryMovement.WarehouseId), nameof(InventoryMovement.DestinationWarehouseId),
             nameof(InventoryMovement.Status), nameof(InventoryMovement.CreatedBy),
@@ -70,27 +76,27 @@ public sealed class AuditSaveChangesInterceptor : SaveChangesInterceptor
             .ToList();
 
         foreach (var entry in audited)
+            context.Add(CreateAuditLog(entry));
+    }
+
+    private AuditLog CreateAuditLog(EntityEntry entry)
+    {
+        var action = entry.State switch
         {
-            var action = entry.State switch
-            {
-                EntityState.Added => "Created",
-                EntityState.Modified => "Updated",
-                EntityState.Deleted => "Deleted",
-                _ => "Unknown"
-            };
-
-            var log = new AuditLog(
-                userId: _currentUser.UserId,
-                timestampUtc: _clock.UtcNow,
-                entity: entry.Entity.GetType().Name,
-                action: action,
-                oldValues: entry.State is EntityState.Added ? null : Serialize(entry, original: true),
-                newValues: entry.State is EntityState.Deleted ? null : Serialize(entry, original: false),
-                ipAddress: _currentUser.IpAddress,
-                correlationId: _currentUser.CorrelationId);
-
-            context.Add(log);
-        }
+            EntityState.Added => "Created",
+            EntityState.Modified => "Updated",
+            EntityState.Deleted => "Deleted",
+            _ => "Unknown"
+        };
+        return new AuditLog(
+            userId: _currentUser.UserId,
+            timestampUtc: _clock.UtcNow,
+            entity: entry.Entity.GetType().Name,
+            action: action,
+            oldValues: entry.State is EntityState.Added ? null : Serialize(entry, original: true),
+            newValues: entry.State is EntityState.Deleted ? null : Serialize(entry, original: false),
+            ipAddress: _currentUser.IpAddress,
+            correlationId: _currentUser.CorrelationId);
     }
 
     private static string Serialize(EntityEntry entry, bool original)
@@ -98,7 +104,7 @@ public sealed class AuditSaveChangesInterceptor : SaveChangesInterceptor
         var values = new Dictionary<string, object?>();
         foreach (var prop in entry.Properties)
         {
-            if (!AuditedProperties[entry.Entity.GetType()].Contains(prop.Metadata.Name)) continue;
+            if (!prop.Metadata.IsPrimaryKey() && !AuditedProperties[entry.Entity.GetType()].Contains(prop.Metadata.Name)) continue;
             values[prop.Metadata.Name] = original ? prop.OriginalValue : prop.CurrentValue;
         }
 
