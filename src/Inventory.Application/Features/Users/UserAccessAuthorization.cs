@@ -7,7 +7,7 @@ using Shared.Authorization;
 namespace Inventory.Application.Features.Users;
 
 public sealed class UserAccessAuthorization(
-    IApplicationDbContext db, IPermissionChecker permissionChecker, ICurrentUser currentUser)
+    IApplicationDbContext db, IUserAuthorizationProvider authorization, ICurrentUser currentUser)
 {
     public async Task EnsureCanAssignAsync(Guid? targetUserId, IReadOnlyList<Guid> roleIds,
         IReadOnlyList<PermissionOverrideInput> overrides, bool hasAllWarehousesAccess,
@@ -16,7 +16,8 @@ public sealed class UserAccessAuthorization(
         if (targetUserId == currentUser.UserId)
             throw new ForbiddenAccessException("You cannot change your own access.");
 
-        var caller = await permissionChecker.GetCurrentUserAuthorizationAsync(ct);
+        var callerId = currentUser.UserId ?? throw new ForbiddenAccessException();
+        var caller = await authorization.GetAuthorizationDataAsync(callerId, ct);
         var callerPermissions = PermissionEngine.ComputeEffectivePermissions(caller);
 
         var rolePermissionIds = await db.RolePermissions.AsNoTracking()

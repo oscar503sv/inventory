@@ -40,4 +40,5 @@ public interface IApplicationDbContext
     DbSet<AuditLog> AuditLogs { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+    Task ExecuteAdministratorUpdateAsync(Func<Task> operation, CancellationToken cancellationToken);
 }

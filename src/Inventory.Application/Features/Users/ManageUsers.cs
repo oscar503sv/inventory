@@ -5,6 +5,7 @@ using Inventory.Application.Features.Auth;
 using Inventory.Domain.Identity;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Shared.Authorization;
 
 namespace Inventory.Application.Features.Users;
 
@@ -20,23 +21,39 @@ public sealed class UpdateUserValidator : AbstractValidator<UpdateUserCommand>
     }
 }
 
-public sealed class UpdateUserHandler(IApplicationDbContext db, IDateTimeProvider clock) : IRequestHandler<UpdateUserCommand>
+public sealed class UpdateUserHandler(IApplicationDbContext db, IDateTimeProvider clock,
+    ICurrentUser currentUser, IUserAuthorizationProvider authorization) : IRequestHandler<UpdateUserCommand>
 {
     public async Task Handle(UpdateUserCommand request, CancellationToken ct)
     {
-        var user = await db.Users.SingleOrDefaultAsync(u => u.Id == request.UserId, ct)
-            ?? throw NotFoundException.For("User", request.UserId);
-        var email = request.Email.Trim().ToLowerInvariant();
-        if (await db.Users.AnyAsync(u => u.Id != user.Id && u.Email == email, ct))
-            throw new ConflictException("Email is already in use.");
-        user.UpdateProfile(email, request.UserName, request.FullName);
-        if (request.IsActive) user.Activate();
-        else
+        await db.ExecuteAdministratorUpdateAsync(async () =>
         {
-            user.Deactivate();
-            await SessionRevocation.RevokeAsync(db, user.Id, clock.UtcNow, ct);
-        }
-        await db.SaveChangesAsync(ct);
+            var user = await db.Users.Include(u => u.Roles).Include(u => u.Overrides).Include(u => u.Scopes)
+                .SingleOrDefaultAsync(u => u.Id == request.UserId, ct)
+                ?? throw NotFoundException.For("User", request.UserId);
+            await AdministratorUpdateGuard.EnsureActorAuthorizedAsync(authorization, currentUser, Permissions.Users.Manage, ct);
+            var email = request.Email.Trim().ToLowerInvariant();
+            if (currentUser.UserId == user.Id && (!request.IsActive || email != user.Email))
+                throw new ForbiddenAccessException("You cannot deactivate yourself or change your own email.");
+            var administratorRoleId = await AdministratorUpdateGuard.GetRoleIdAsync(db, ct);
+            var isAdministrator = await db.UserRoles.AnyAsync(r => r.UserId == user.Id && r.RoleId == administratorRoleId, ct);
+            if (isAdministrator)
+                await AdministratorUpdateGuard.EnsureWithinCeilingAsync(db, authorization, currentUser, user.Id,
+                    user.Roles.Select(r => r.RoleId), user.Overrides.Select(o => new PermissionOverrideInput(o.PermissionId, o.OverrideType)),
+                    user.HasAllWarehousesAccess, user.Scopes.Select(s => s.WarehouseId), Permissions.Users.Manage, ct);
+            if (isAdministrator && user.IsActive && !request.IsActive)
+                await AdministratorUpdateGuard.EnsureReplacementAsync(db, user.Id, administratorRoleId, ct);
+            if (await db.Users.AnyAsync(u => u.Id != user.Id && u.Email == email, ct))
+                throw new ConflictException("Email is already in use.");
+            user.UpdateProfile(email, request.UserName, request.FullName);
+            if (request.IsActive) user.Activate();
+            else
+            {
+                user.Deactivate();
+                await SessionRevocation.RevokeAsync(db, user.Id, clock.UtcNow, ct);
+            }
+            await db.SaveChangesAsync(ct);
+        }, ct);
     }
 }
 
@@ -64,35 +81,55 @@ public sealed class UpdateUserAccessValidator : AbstractValidator<UpdateUserAcce
     }
 }
 
-public sealed class UpdateUserAccessHandler(IApplicationDbContext db, UserAccessAuthorization authorization) : IRequestHandler<UpdateUserAccessCommand>
+public sealed class UpdateUserAccessHandler(IApplicationDbContext db, ICurrentUser currentUser,
+    IUserAuthorizationProvider authorization, UserAccessAuthorization accessAuthorization) : IRequestHandler<UpdateUserAccessCommand>
 {
     public async Task Handle(UpdateUserAccessCommand request, CancellationToken ct)
     {
-        var user = await db.Users.Include(u => u.Roles).Include(u => u.Overrides).Include(u => u.Scopes)
-            .SingleOrDefaultAsync(u => u.Id == request.UserId, ct)
-            ?? throw NotFoundException.For("User", request.UserId);
-        await UserAccessReferences.ValidateAsync(db, request.RoleIds, request.WarehouseIds,
-            request.Overrides.Select(o => o.PermissionId).ToArray(), ct);
-        await authorization.EnsureCanAssignAsync(request.UserId, request.RoleIds, request.Overrides,
-            request.HasAllWarehousesAccess, request.WarehouseIds, ct);
-        foreach (var role in user.Roles.ToArray())
-            if (!request.RoleIds.Contains(role.RoleId)) user.RemoveRole(role.RoleId);
-        foreach (var id in request.RoleIds.Distinct())
+        await db.ExecuteAdministratorUpdateAsync(async () =>
         {
-            if (user.Roles.Any(r => r.RoleId == id)) continue;
-            user.AssignRole(id);
-            db.UserRoles.Add(user.Roles.Single(r => r.RoleId == id));
-        }
-        foreach (var item in user.Overrides.ToArray())
-            if (!request.Overrides.Any(o => o.PermissionId == item.PermissionId)) user.RemoveOverride(item.PermissionId);
-        foreach (var item in request.Overrides)
-        {
-            var exists = user.Overrides.Any(o => o.PermissionId == item.PermissionId);
-            user.SetOverride(item.PermissionId, item.Type);
-            if (!exists) db.UserPermissionOverrides.Add(user.Overrides.Single(o => o.PermissionId == item.PermissionId));
-        }
-        UpdateScopes(user, request);
-        await db.SaveChangesAsync(ct);
+            var user = await db.Users.Include(u => u.Roles).Include(u => u.Overrides).Include(u => u.Scopes)
+                .SingleOrDefaultAsync(u => u.Id == request.UserId, ct)
+                ?? throw NotFoundException.For("User", request.UserId);
+            if (currentUser.UserId == user.Id)
+                throw new ForbiddenAccessException("You cannot change your own access.");
+            await AdministratorUpdateGuard.EnsureActorAuthorizedAsync(authorization, currentUser, Permissions.Roles.Manage, ct);
+            var administratorRoleId = await AdministratorUpdateGuard.GetRoleIdAsync(db, ct);
+            var isAdministrator = user.Roles.Any(r => r.RoleId == administratorRoleId);
+            if (isAdministrator)
+            {
+                await AdministratorUpdateGuard.EnsureWithinCeilingAsync(db, authorization, currentUser, user.Id,
+                    user.Roles.Select(r => r.RoleId), user.Overrides.Select(o => new PermissionOverrideInput(o.PermissionId, o.OverrideType)),
+                    user.HasAllWarehousesAccess, user.Scopes.Select(s => s.WarehouseId), Permissions.Roles.Manage, ct);
+                await AdministratorUpdateGuard.EnsureWithinCeilingAsync(db, authorization, currentUser, user.Id,
+                    request.RoleIds, request.Overrides, request.HasAllWarehousesAccess, request.WarehouseIds,
+                    Permissions.Roles.Manage, ct);
+                if (user.IsActive && !request.RoleIds.Contains(administratorRoleId))
+                    await AdministratorUpdateGuard.EnsureReplacementAsync(db, user.Id, administratorRoleId, ct);
+            }
+            await UserAccessReferences.ValidateAsync(db, request.RoleIds, request.WarehouseIds,
+                request.Overrides.Select(o => o.PermissionId).ToArray(), ct);
+            await accessAuthorization.EnsureCanAssignAsync(request.UserId, request.RoleIds, request.Overrides,
+                request.HasAllWarehousesAccess, request.WarehouseIds, ct);
+            foreach (var role in user.Roles.ToArray())
+                if (!request.RoleIds.Contains(role.RoleId)) user.RemoveRole(role.RoleId);
+            foreach (var id in request.RoleIds.Distinct())
+            {
+                if (user.Roles.Any(r => r.RoleId == id)) continue;
+                user.AssignRole(id);
+                db.UserRoles.Add(user.Roles.Single(r => r.RoleId == id));
+            }
+            foreach (var item in user.Overrides.ToArray())
+                if (!request.Overrides.Any(o => o.PermissionId == item.PermissionId)) user.RemoveOverride(item.PermissionId);
+            foreach (var item in request.Overrides)
+            {
+                var exists = user.Overrides.Any(o => o.PermissionId == item.PermissionId);
+                user.SetOverride(item.PermissionId, item.Type);
+                if (!exists) db.UserPermissionOverrides.Add(user.Overrides.Single(o => o.PermissionId == item.PermissionId));
+            }
+            UpdateScopes(user, request);
+            await db.SaveChangesAsync(ct);
+        }, ct);
     }
 
     private void UpdateScopes(User user, UpdateUserAccessCommand request)

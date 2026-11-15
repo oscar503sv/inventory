@@ -223,6 +223,15 @@ La revisión inicial identificó consultas de stock y kardex sin comprobación d
 
 **Seguimiento:** se incorporó el punto 3 desde `dev` sin perder su administración de usuarios y sesiones. El contrato de auditoría global y la paginación v2 ya están disponibles para el frontend futuro; los puntos 5 y 6 siguen pendientes. La duplicación previa de reglas de líneas en validadores de movimientos se documentó para un PR independiente.
 
+### OZK-47 — Proteger al último administrador activo (implementado; 2026-11-14)
+
+- Los `PUT /users/{id}` y `PUT /users/{id}/access` serializan mediante el mismo bloqueo advisory en transacción `READ COMMITTED`. Desactivar a un administrador activo o retirarle el rol Administrator devuelve `409` si no queda otro administrador activo; usuarios inactivos no cuentan. La protección se mantiene con solicitudes concurrentes.
+- `PUT /users/{id}` devuelve `403` ante auto-desactivación o cambio real del propio email; email equivalente tras trim y normalización a minúsculas sí pasa esa regla. Al editar un administrador se limita tanto el acceso actual como el resultante: roles ∪ Allow debe ser subconjunto de los permisos efectivos del actor, respetando sus Deny, acceso global y alcance de bodegas.
+- Perfil, accesos, revocación de refresh tokens y auditoría se guardan atómicamente; los eventos de dominio se despachan después del commit. Sin cambios de esquema ni dependencias.
+- Evidencia local del 2026-11-14: **151 pruebas aprobadas, 0 fallidas** (API/PostgreSQL 109, Application 7, Authorization 7, Domain 28), Release con 0 advertencias/errores; formato .NET y `git diff --check` correctos. Los TRX de `TestResults/` registran 109, 7, 7 y 28 aprobadas.
+- **Integración con OZK-46:** sus controles generales de creación y delegación y la prohibición de autoedición de accesos se aplican junto con la protección del último administrador. La evidencia anterior corresponde a la validación independiente de OZK-47.
+- Validación integrada local del 2026-11-14 en el checkout principal: **161 pruebas aprobadas, 0 fallidas y 0 omitidas** (API/PostgreSQL 119, Application 7, Authorization 7, Domain 28), compilación Release con 0 advertencias/errores, verificación de formato .NET y `git diff --check` correctos. TRX en `TestResults/` con marcas `2026-11-14_21_04_26` y `2026-11-14_21_04_27`. La evidencia previa de 151 pruebas es de OZK-47 en su worktree, no de estos TRX.
+
 ## 5. Construir el frontend del MVP
 
 Stack previsto: React, TypeScript y Vite, siguiendo las herramientas de interfaz contempladas en la documentación del proyecto.
