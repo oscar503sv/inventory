@@ -67,7 +67,15 @@ public sealed class User : AggregateRoot
 
     public void SetOverride(Guid permissionId, OverrideType overrideType)
     {
-        _overrides.RemoveAll(o => o.PermissionId == permissionId);
+        if (!Enum.IsDefined(overrideType))
+            throw new DomainException("Invalid permission override type.");
+        var existing = _overrides.SingleOrDefault(o => o.PermissionId == permissionId);
+        if (existing is not null)
+        {
+            existing.ChangeType(overrideType);
+            Raise(new PermissionChangedDomainEvent(Id));
+            return;
+        }
         _overrides.Add(new UserPermissionOverride(Id, permissionId, overrideType));
         Raise(new PermissionChangedDomainEvent(Id));
     }
@@ -86,6 +94,39 @@ public sealed class User : AggregateRoot
         HasAllWarehousesAccess = true;
         _scopes.Clear();
         Raise(new PermissionChangedDomainEvent(Id));
+    }
+
+    public void RemoveRole(Guid roleId)
+    {
+        _roles.RemoveAll(r => r.RoleId == roleId);
+        Raise(new PermissionChangedDomainEvent(Id));
+    }
+
+    public void RemoveOverride(Guid permissionId)
+    {
+        _overrides.RemoveAll(o => o.PermissionId == permissionId);
+        Raise(new PermissionChangedDomainEvent(Id));
+    }
+
+    public void RevokeWarehouseScope(Guid warehouseId)
+    {
+        _scopes.RemoveAll(s => s.WarehouseId == warehouseId);
+        Raise(new PermissionChangedDomainEvent(Id));
+    }
+
+    public void RevokeAllWarehousesAccess()
+    {
+        HasAllWarehousesAccess = false;
+        Raise(new PermissionChangedDomainEvent(Id));
+    }
+
+    public void UpdateProfile(string email, string userName, string fullName)
+    {
+        if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(userName))
+            throw new DomainException("Email and user name are required.");
+        Email = email.Trim().ToLowerInvariant();
+        UserName = userName.Trim();
+        FullName = fullName.Trim();
     }
 
     public void ChangePassword(string newPasswordHash)

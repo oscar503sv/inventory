@@ -2,6 +2,10 @@ namespace Shared.Contracts.Inventory;
 
 public sealed record MovementLineDto(Guid ProductId, decimal Quantity, decimal UnitCost);
 
+public sealed record MovementSummaryDto(
+    Guid Id, string MovementNumber, string MovementType, Guid WarehouseId, Guid? DestinationWarehouseId,
+    string Status, Guid CreatedBy, DateTime CreatedAtUtc, string Notes, int LineCount);
+
 public sealed record MovementDto(
     Guid Id,
     string MovementNumber,

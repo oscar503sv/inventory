@@ -1,4 +1,5 @@
 using Inventory.Application.Common.Abstractions;
+using Inventory.Application.Common.Exceptions;
 using Inventory.Domain.Audit;
 using Inventory.Domain.Catalog;
 using Inventory.Domain.Common;
@@ -6,12 +7,16 @@ using Inventory.Domain.Identity;
 using Inventory.Domain.Inventory;
 using Inventory.Domain.Warehouses;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Inventory.Persistence;
 
 public sealed class AppDbContext : DbContext, IApplicationDbContext
 {
+    // Every administrator profile/access PUT must use this same transaction-scoped lock.
+    internal const long AdministratorUpdateLockKey = 471047;
     private readonly IDomainEventDispatcher _dispatcher;
+    private List<IDomainEvent>? _pendingAdministratorEvents;
 
     public AppDbContext(DbContextOptions<AppDbContext> options, IDomainEventDispatcher dispatcher)
         : base(options)
@@ -54,7 +59,21 @@ public sealed class AppDbContext : DbContext, IApplicationDbContext
             .SelectMany(e => e.Entity.DomainEvents)
             .ToList();
 
-        var result = await base.SaveChangesAsync(cancellationToken);
+        int result;
+        try
+        {
+            result = await base.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            ChangeTracker.Clear();
+            throw new ConflictException("Stock changed concurrently. Retry the complete request with the same idempotency key.");
+        }
+        catch (Exception ex) when (IsInventoryWriteConflict(ex))
+        {
+            ChangeTracker.Clear();
+            throw new ConflictException("An inventory request conflicted with another write. Retry the complete request with the same idempotency key.");
+        }
 
         // Dispatch after commit so handlers observe persisted state (ADR-004).
         if (domainEvents.Count > 0)
@@ -62,9 +81,44 @@ public sealed class AppDbContext : DbContext, IApplicationDbContext
             foreach (var entry in ChangeTracker.Entries<AggregateRoot>())
                 entry.Entity.ClearDomainEvents();
 
-            await _dispatcher.DispatchAsync(domainEvents, cancellationToken);
+            if (_pendingAdministratorEvents is not null)
+                _pendingAdministratorEvents.AddRange(domainEvents);
+            else
+                await _dispatcher.DispatchAsync(domainEvents, cancellationToken);
         }
 
         return result;
+    }
+
+    public async Task ExecuteAdministratorUpdateAsync(Func<Task> operation, CancellationToken cancellationToken)
+    {
+        await using var transaction = await Database.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellationToken);
+        _pendingAdministratorEvents = [];
+        try
+        {
+            await Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock({AdministratorUpdateLockKey})", cancellationToken);
+            await operation();
+            await transaction.CommitAsync(cancellationToken);
+            var events = _pendingAdministratorEvents;
+            _pendingAdministratorEvents = null;
+            if (events.Count > 0) await _dispatcher.DispatchAsync(events, cancellationToken);
+        }
+        finally
+        {
+            _pendingAdministratorEvents = null;
+        }
+    }
+
+    private static bool IsInventoryWriteConflict(Exception exception)
+    {
+        // Npgsql's execution strategy wraps transient PostgreSQL errors in InvalidOperationException.
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is PostgresException postgres)
+                return postgres.SqlState is PostgresErrorCodes.DeadlockDetected or PostgresErrorCodes.SerializationFailure
+                    || (postgres.SqlState == PostgresErrorCodes.UniqueViolation && postgres.ConstraintName is
+                        "IX_stocks_ProductId_WarehouseId" or "IX_inventory_movements_CreatedBy_IdempotencyKey");
+        }
+        return false;
     }
 }

@@ -14,7 +14,8 @@ public sealed record CreateTransferCommand(
     Guid SourceWarehouseId,
     Guid DestinationWarehouseId,
     IReadOnlyList<MovementLineInput> Lines,
-    string? Notes = null) : IRequest<MovementDto>;
+    string? Notes = null,
+    Guid IdempotencyKey = default) : IRequest<MovementDto>, IInventoryCommand;
 
 public sealed class CreateTransferCommandValidator : AbstractValidator<CreateTransferCommand>
 {
@@ -24,11 +25,15 @@ public sealed class CreateTransferCommandValidator : AbstractValidator<CreateTra
         RuleFor(x => x.DestinationWarehouseId).NotEmpty()
             .NotEqual(x => x.SourceWarehouseId)
             .WithMessage("Source and destination warehouses must differ.");
-        RuleFor(x => x.Lines).NotEmpty();
+        RuleFor(x => x.IdempotencyKey).NotEmpty();
+        RuleFor(x => x.Lines).NotEmpty()
+            .Must(lines => lines is null || lines.All(l => l is not null) && lines.Select(l => l.ProductId).Distinct().Count() == lines.Count)
+            .WithMessage("A product may appear only once per movement.");
         RuleForEach(x => x.Lines).ChildRules(line =>
         {
             line.RuleFor(l => l.ProductId).NotEmpty();
-            line.RuleFor(l => l.Quantity).GreaterThan(0);
+            line.RuleFor(l => l.UnitCost).PrecisionScale(18, 4, ignoreTrailingZeros: true).GreaterThanOrEqualTo(0);
+            line.RuleFor(l => l.Quantity).PrecisionScale(18, 4, ignoreTrailingZeros: true).GreaterThan(0);
         });
     }
 }
@@ -59,6 +64,9 @@ public sealed class CreateTransferCommandHandler : IRequestHandler<CreateTransfe
     {
         await _permissions.EnsureWarehouseAccessAsync(request.SourceWarehouseId, cancellationToken);
         await _permissions.EnsureWarehouseAccessAsync(request.DestinationWarehouseId, cancellationToken);
+        var replay = await InventorySupport.FindReplayAsync(
+            _db, _currentUser.UserId ?? Guid.Empty, request, cancellationToken);
+        if (replay is not null) return replay;
         await InventorySupport.EnsureWarehouseExistsAsync(_db, request.SourceWarehouseId, cancellationToken);
         await InventorySupport.EnsureWarehouseExistsAsync(_db, request.DestinationWarehouseId, cancellationToken);
         var minimums = await InventorySupport.LoadProductMinimumsAsync(
@@ -85,6 +93,7 @@ public sealed class CreateTransferCommandHandler : IRequestHandler<CreateTransfe
             destination.Increase(line.Quantity);
         }
 
+        movement.SetIdempotency(request.IdempotencyKey, InventorySupport.RequestHash(request));
         _db.InventoryMovements.Add(movement);
         await _db.SaveChangesAsync(cancellationToken);
 

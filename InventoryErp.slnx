@@ -10,6 +10,7 @@
     <Project Path="src/Shared.Events/Shared.Events.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Inventory.API.IntegrationTests/Inventory.API.IntegrationTests.csproj" />
     <Project Path="tests/Inventory.Application.Tests/Inventory.Application.Tests.csproj" />
     <Project Path="tests/Inventory.Authorization.Tests/Inventory.Authorization.Tests.csproj" />
     <Project Path="tests/Inventory.Domain.Tests/Inventory.Domain.Tests.csproj" />

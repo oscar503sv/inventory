@@ -31,11 +31,14 @@ public sealed class CreateUserCommandHandler : IRequestHandler<CreateUserCommand
 {
     private readonly IApplicationDbContext _db;
     private readonly IPasswordHasher _passwordHasher;
+    private readonly UserAccessAuthorization _authorization;
 
-    public CreateUserCommandHandler(IApplicationDbContext db, IPasswordHasher passwordHasher)
+    public CreateUserCommandHandler(IApplicationDbContext db, IPasswordHasher passwordHasher,
+        UserAccessAuthorization authorization)
     {
         _db = db;
         _passwordHasher = passwordHasher;
+        _authorization = authorization;
     }
 
     public async Task<UserDto> Handle(CreateUserCommand request, CancellationToken cancellationToken)
@@ -45,9 +48,10 @@ public sealed class CreateUserCommandHandler : IRequestHandler<CreateUserCommand
             throw new ConflictException($"A user with email '{email}' already exists.");
 
         var roleIds = request.RoleIds?.Distinct().ToList() ?? [];
+        await UserAccessReferences.ValidateAsync(_db, roleIds, request.WarehouseScopeIds ?? [], [], cancellationToken);
+        await _authorization.EnsureCanAssignAsync(null, roleIds, [], request.HasAllWarehousesAccess,
+            request.WarehouseScopeIds ?? [], cancellationToken);
         var roles = await _db.Roles.Where(r => roleIds.Contains(r.Id)).ToListAsync(cancellationToken);
-        if (roles.Count != roleIds.Count)
-            throw new NotFoundException("One or more roles were not found.");
 
         var user = User.Create(
             request.Email, request.UserName, request.FullName,
@@ -56,12 +60,10 @@ public sealed class CreateUserCommandHandler : IRequestHandler<CreateUserCommand
         foreach (var role in roles)
             user.AssignRole(role.Id);
 
-        if (!request.HasAllWarehousesAccess && request.WarehouseScopeIds is { Count: > 0 })
+        if (request.WarehouseScopeIds is { Count: > 0 })
         {
             var scopeIds = request.WarehouseScopeIds.Distinct().ToList();
-            var validWarehouses = await _db.Warehouses
-                .Where(w => scopeIds.Contains(w.Id)).Select(w => w.Id).ToListAsync(cancellationToken);
-            foreach (var warehouseId in validWarehouses)
+            foreach (var warehouseId in scopeIds)
                 user.GrantWarehouseScope(warehouseId);
         }
 

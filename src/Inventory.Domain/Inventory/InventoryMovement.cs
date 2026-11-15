@@ -23,6 +23,17 @@ public sealed class InventoryMovement : AggregateRoot
     public Guid CreatedBy { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
     public string Notes { get; private set; } = string.Empty;
+    public long LedgerSequence { get; private set; }
+    public Guid? IdempotencyKey { get; private set; }
+    public string? RequestHash { get; private set; }
+
+    public void SetIdempotency(Guid key, string requestHash)
+    {
+        if (key == Guid.Empty || string.IsNullOrWhiteSpace(requestHash) || IdempotencyKey is not null)
+            throw new DomainException("A movement requires a non-empty, immutable idempotency key and request hash.");
+        IdempotencyKey = key;
+        RequestHash = requestHash;
+    }
 
     public IReadOnlyCollection<InventoryMovementLine> Lines => _lines.AsReadOnly();
 
@@ -50,13 +61,16 @@ public sealed class InventoryMovement : AggregateRoot
         _lines.AddRange(lines);
         if (_lines.Count == 0)
             throw new DomainException("A movement must contain at least one line.");
+        if (_lines.Select(l => l.ProductId).Distinct().Count() != _lines.Count)
+            throw new DomainException("A product may appear only once per movement.");
 
         MovementNumber = movementNumber.Trim();
         MovementType = type;
         WarehouseId = warehouseId;
         DestinationWarehouseId = destinationWarehouseId;
         CreatedBy = createdBy;
-        CreatedAtUtc = createdAtUtc;
+        // PostgreSQL timestamps retain microseconds. Keep the original response and replays identical.
+        CreatedAtUtc = createdAtUtc.AddTicks(-(createdAtUtc.Ticks % 10));
         Notes = notes?.Trim() ?? string.Empty;
         Status = MovementStatus.Confirmed;
     }

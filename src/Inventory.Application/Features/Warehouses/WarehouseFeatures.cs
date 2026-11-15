@@ -57,10 +57,13 @@ public sealed class UpdateWarehouseCommandValidator : AbstractValidator<UpdateWa
 public sealed class UpdateWarehouseCommandHandler : IRequestHandler<UpdateWarehouseCommand, WarehouseDto>
 {
     private readonly IApplicationDbContext _db;
-    public UpdateWarehouseCommandHandler(IApplicationDbContext db) => _db = db;
+    private readonly IPermissionChecker _permissions;
+    public UpdateWarehouseCommandHandler(IApplicationDbContext db, IPermissionChecker permissions)
+        => (_db, _permissions) = (db, permissions);
 
     public async Task<WarehouseDto> Handle(UpdateWarehouseCommand request, CancellationToken cancellationToken)
     {
+        await _permissions.EnsureWarehouseAccessAsync(request.Id, cancellationToken);
         var warehouse = await _db.Warehouses.FirstOrDefaultAsync(w => w.Id == request.Id, cancellationToken)
             ?? throw NotFoundException.For("Warehouse", request.Id);
 
@@ -75,11 +78,19 @@ public sealed record GetWarehousesQuery : IRequest<IReadOnlyList<WarehouseDto>>;
 public sealed class GetWarehousesQueryHandler : IRequestHandler<GetWarehousesQuery, IReadOnlyList<WarehouseDto>>
 {
     private readonly IApplicationDbContext _db;
-    public GetWarehousesQueryHandler(IApplicationDbContext db) => _db = db;
+    private readonly IPermissionChecker _permissions;
+    public GetWarehousesQueryHandler(IApplicationDbContext db, IPermissionChecker permissions)
+        => (_db, _permissions) = (db, permissions);
 
     public async Task<IReadOnlyList<WarehouseDto>> Handle(GetWarehousesQuery request, CancellationToken cancellationToken)
-        => await _db.Warehouses.AsNoTracking()
+    {
+        var access = await _permissions.GetCurrentUserAuthorizationAsync(cancellationToken);
+        var query = _db.Warehouses.AsNoTracking();
+        if (!access.HasAllWarehousesAccess)
+            query = query.Where(w => access.WarehouseScopes.Contains(w.Id));
+        return await query
             .OrderBy(w => w.Code)
             .Select(w => new WarehouseDto(w.Id, w.Code, w.Name, w.Address, w.Status.ToString()))
             .ToListAsync(cancellationToken);
+    }
 }
