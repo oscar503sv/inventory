@@ -64,7 +64,7 @@ public sealed class UpdateUserAccessValidator : AbstractValidator<UpdateUserAcce
     }
 }
 
-public sealed class UpdateUserAccessHandler(IApplicationDbContext db) : IRequestHandler<UpdateUserAccessCommand>
+public sealed class UpdateUserAccessHandler(IApplicationDbContext db, UserAccessAuthorization authorization) : IRequestHandler<UpdateUserAccessCommand>
 {
     public async Task Handle(UpdateUserAccessCommand request, CancellationToken ct)
     {
@@ -73,6 +73,8 @@ public sealed class UpdateUserAccessHandler(IApplicationDbContext db) : IRequest
             ?? throw NotFoundException.For("User", request.UserId);
         await UserAccessReferences.ValidateAsync(db, request.RoleIds, request.WarehouseIds,
             request.Overrides.Select(o => o.PermissionId).ToArray(), ct);
+        await authorization.EnsureCanAssignAsync(request.UserId, request.RoleIds, request.Overrides,
+            request.HasAllWarehousesAccess, request.WarehouseIds, ct);
         foreach (var role in user.Roles.ToArray())
             if (!request.RoleIds.Contains(role.RoleId)) user.RemoveRole(role.RoleId);
         foreach (var id in request.RoleIds.Distinct())

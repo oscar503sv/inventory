@@ -1,6 +1,7 @@
 using System.Reflection;
 using FluentValidation;
 using Inventory.Application.Common.Behaviors;
+using Inventory.Application.Features.Users;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -15,6 +16,7 @@ public static class DependencyInjection
         services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(assembly));
         services.AddValidatorsFromAssembly(assembly);
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
+        services.AddScoped<UserAccessAuthorization>();
 
         return services;
     }

@@ -189,6 +189,12 @@ La revisión inicial identificó consultas de stock y kardex sin comprobación d
 - Política explícita y contratos documentados en el [README](../README.md#administración-de-usuarios-y-sesiones-punto-3): los JWT siguen vigentes hasta expirar para usuarios activos, incluso después de logout; vuelven a aceptarse al reactivar si aún no vencieron. No se implementa blacklist.
 - Pruebas HTTP/PostgreSQL para edición, errores de perfil, asignación y retirada de roles, modificación y retirada de excepciones, alcances individuales/globales, aplicación inmediata de permisos, rechazo de referencias inexistentes, rotación, logout, revocación administrativa, desactivación/reactivación y tokens vencidos. Las bases de pruebas siguen siendo aisladas.
 
+### Refuerzo de delegación de accesos — OZK-46 (2026-11-14)
+
+- `POST /api/v1/users` y `PUT /api/v1/users/{id}/access` conservan sus permisos administrativos y contratos existentes. Ambos comparten validación de delegación: se rechaza `403` cambiar el propio acceso incluso para Admin; los permisos otorgados por roles y excepciones Allow del destinatario deben estar dentro de los permisos efectivos del solicitante (incluyendo el límite impuesto por sus Deny); Deny del destinatario no puede encubrir una concesión excesiva. El acceso global solo se delega desde un solicitante global y el alcance explícito de bodegas debe estar contenido en el alcance del solicitante, salvo que este sea global. La autorización ocurre antes de cualquier mutación.
+- Verificación local en el worktree `fix/ozk-46-access-delegation`: compilación Release con **0 advertencias y 0 errores**; suite completa **153 aprobadas, 0 fallidas y 0 omitidas** (API 111, Application 7, Authorization 7, Domain 28), incluidos **10 casos nuevos** de delegación. La suite enfocada reportó 33 aprobadas antes del fortalecimiento de aserciones; la suite completa de 153 se ejecutó después. `dotnet format whitespace --verify-no-changes` sobre los archivos C# modificados y `git diff --check` pasaron. El TRX está en `TestResults/` de ese worktree.
+- Evidencia limitada a OZK-46; no implica el cierre de otros hallazgos de auditoría ni modifica la evidencia histórica anterior.
+
 ## 4. Completar auditoría y consultas operativas
 
 - [x] Crear una consulta paginada de auditoría protegida por `audit.read`.

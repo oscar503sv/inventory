@@ -31,11 +31,14 @@ public sealed class CreateUserCommandHandler : IRequestHandler<CreateUserCommand
 {
     private readonly IApplicationDbContext _db;
     private readonly IPasswordHasher _passwordHasher;
+    private readonly UserAccessAuthorization _authorization;
 
-    public CreateUserCommandHandler(IApplicationDbContext db, IPasswordHasher passwordHasher)
+    public CreateUserCommandHandler(IApplicationDbContext db, IPasswordHasher passwordHasher,
+        UserAccessAuthorization authorization)
     {
         _db = db;
         _passwordHasher = passwordHasher;
+        _authorization = authorization;
     }
 
     public async Task<UserDto> Handle(CreateUserCommand request, CancellationToken cancellationToken)
@@ -46,6 +49,8 @@ public sealed class CreateUserCommandHandler : IRequestHandler<CreateUserCommand
 
         var roleIds = request.RoleIds?.Distinct().ToList() ?? [];
         await UserAccessReferences.ValidateAsync(_db, roleIds, request.WarehouseScopeIds ?? [], [], cancellationToken);
+        await _authorization.EnsureCanAssignAsync(null, roleIds, [], request.HasAllWarehousesAccess,
+            request.WarehouseScopeIds ?? [], cancellationToken);
         var roles = await _db.Roles.Where(r => roleIds.Contains(r.Id)).ToListAsync(cancellationToken);
 
         var user = User.Create(
