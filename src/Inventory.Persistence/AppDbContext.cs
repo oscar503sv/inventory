@@ -13,7 +13,10 @@ namespace Inventory.Persistence;
 
 public sealed class AppDbContext : DbContext, IApplicationDbContext
 {
+    // Every administrator profile/access PUT must use this same transaction-scoped lock.
+    internal const long AdministratorUpdateLockKey = 471047;
     private readonly IDomainEventDispatcher _dispatcher;
+    private List<IDomainEvent>? _pendingAdministratorEvents;
 
     public AppDbContext(DbContextOptions<AppDbContext> options, IDomainEventDispatcher dispatcher)
         : base(options)
@@ -78,10 +81,32 @@ public sealed class AppDbContext : DbContext, IApplicationDbContext
             foreach (var entry in ChangeTracker.Entries<AggregateRoot>())
                 entry.Entity.ClearDomainEvents();
 
-            await _dispatcher.DispatchAsync(domainEvents, cancellationToken);
+            if (_pendingAdministratorEvents is not null)
+                _pendingAdministratorEvents.AddRange(domainEvents);
+            else
+                await _dispatcher.DispatchAsync(domainEvents, cancellationToken);
         }
 
         return result;
+    }
+
+    public async Task ExecuteAdministratorUpdateAsync(Func<Task> operation, CancellationToken cancellationToken)
+    {
+        await using var transaction = await Database.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellationToken);
+        _pendingAdministratorEvents = [];
+        try
+        {
+            await Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock({AdministratorUpdateLockKey})", cancellationToken);
+            await operation();
+            await transaction.CommitAsync(cancellationToken);
+            var events = _pendingAdministratorEvents;
+            _pendingAdministratorEvents = null;
+            if (events.Count > 0) await _dispatcher.DispatchAsync(events, cancellationToken);
+        }
+        finally
+        {
+            _pendingAdministratorEvents = null;
+        }
     }
 
     private static bool IsInventoryWriteConflict(Exception exception)

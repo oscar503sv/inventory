@@ -133,6 +133,12 @@ Additionally, the authorization engine MUST validate:
 - Permission
 - Warehouse Scope
 
+### Protección del último administrador activo (OZK-47, 2026-11-14)
+
+Los `PUT` de perfil y accesos de usuarios comparten un bloqueo advisory transaccional y ejecutan en `READ COMMITTED`. Así, desactivar un usuario con rol Administrator o quitarle el rol requiere que quede otro usuario activo con ese rol; las operaciones concurrentes no pueden eliminar simultáneamente a los dos últimos. El perfil también prohíbe la auto-desactivación y el cambio del propio email (`403`).
+
+Al modificar un administrador, tanto su acceso actual como el resultante deben caber en los permisos efectivos y alcance del actor. Para el techo se consideran roles más permisos Allow explícitos; los Deny del actor prevalecen. El acceso global requiere actor global y las bodegas asignadas deben estar dentro de su alcance. Los cambios, revocaciones de sesión y auditoría son atómicos; los eventos de dominio se despachan después del commit. La cobertura general de creación, delegación y autoedición sigue en OZK-46.
+
 A user with `inventory.read` scoped to Warehouses {1, 2} may only read those warehouses; a user
 scoped to "All Warehouses" may read any.
 
