@@ -166,6 +166,6 @@ public sealed class GetPermissionCatalogHandler(IApplicationDbContext db)
     : IRequestHandler<GetPermissionCatalogQuery, IReadOnlyList<PermissionCatalogItem>>
 {
     public async Task<IReadOnlyList<PermissionCatalogItem>> Handle(GetPermissionCatalogQuery request, CancellationToken ct)
-        => await db.Permissions.AsNoTracking().OrderBy(p => p.Code).Skip(Math.Max(0, request.Offset))
+        => await db.Permissions.AsNoTracking().OrderBy(p => p.Code).ThenBy(p => p.Id).Skip(Math.Max(0, request.Offset))
             .Take(Math.Clamp(request.Limit, 1, 100)).Select(p => new PermissionCatalogItem(p.Id, p.Code, p.Description)).ToListAsync(ct);
 }

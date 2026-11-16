@@ -5,55 +5,31 @@ using Shared.Authorization;
 
 namespace Inventory.Infrastructure.Authorization;
 
-/// <summary>
-/// Builds a user's <see cref="UserAuthorizationData"/> from PostgreSQL (ADR-005 source of truth).
-/// In Phase 2 this is fronted by a Redis permission cache.
-/// </summary>
-public sealed class UserAuthorizationProvider : IUserAuthorizationProvider
+/// <summary>Loads authorization with bounded projections, avoiding joins between independent collections.</summary>
+public sealed class UserAuthorizationProvider(IApplicationDbContext db) : IUserAuthorizationProvider
 {
-    private readonly IApplicationDbContext _db;
-
-    public UserAuthorizationProvider(IApplicationDbContext db) => _db = db;
-
-    public async Task<UserAuthorizationData> GetAuthorizationDataAsync(
-        Guid userId, CancellationToken cancellationToken = default)
+    public async Task<UserAuthorizationData> GetAuthorizationDataAsync(Guid userId, CancellationToken cancellationToken = default)
     {
-        var user = await _db.Users
-            .AsNoTracking()
-            .Include(u => u.Roles)
-            .Include(u => u.Overrides)
-            .Include(u => u.Scopes)
-            .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+        var user = await db.Users.AsNoTracking().TagWith("Authorization.User").Where(u => u.Id == userId)
+            .Select(u => new { u.IsActive, u.HasAllWarehousesAccess }).SingleOrDefaultAsync(cancellationToken);
+        if (user is null || !user.IsActive) return UserAuthorizationData.Empty;
 
-        if (user is null || !user.IsActive)
-            return UserAuthorizationData.Empty;
-
-        var roleIds = user.Roles.Select(r => r.RoleId).ToList();
-
-        var rolePermissionIds = await _db.RolePermissions
-            .Where(rp => roleIds.Contains(rp.RoleId))
-            .Select(rp => rp.PermissionId)
-            .Distinct()
-            .ToListAsync(cancellationToken);
-
-        var allowIds = user.Overrides
-            .Where(o => o.OverrideType == OverrideType.Allow).Select(o => o.PermissionId).ToList();
-        var denyIds = user.Overrides
-            .Where(o => o.OverrideType == OverrideType.Deny).Select(o => o.PermissionId).ToList();
-
-        var neededIds = rolePermissionIds.Concat(allowIds).Concat(denyIds).Distinct().ToList();
-        var codesById = await _db.Permissions
-            .Where(p => neededIds.Contains(p.Id))
-            .ToDictionaryAsync(p => p.Id, p => p.Code, cancellationToken);
-
-        string[] Codes(IEnumerable<Guid> ids) =>
-            ids.Where(codesById.ContainsKey).Select(id => codesById[id]).ToArray();
+        var roleCodes = await (from assignment in db.UserRoles.AsNoTracking().TagWith("Authorization.Roles")
+                               join rolePermission in db.RolePermissions on assignment.RoleId equals rolePermission.RoleId
+                               join permission in db.Permissions on rolePermission.PermissionId equals permission.Id
+                               where assignment.UserId == userId
+                               select permission.Code).Distinct().ToListAsync(cancellationToken);
+        var overrides = await (from item in db.UserPermissionOverrides.AsNoTracking().TagWith("Authorization.Overrides")
+                               join permission in db.Permissions on item.PermissionId equals permission.Id
+                               where item.UserId == userId
+                               select new { permission.Code, item.OverrideType }).ToListAsync(cancellationToken);
+        var scopes = await db.WarehouseScopes.AsNoTracking().TagWith("Authorization.Scopes").Where(s => s.UserId == userId)
+            .Select(s => s.WarehouseId).ToListAsync(cancellationToken);
 
         return new UserAuthorizationData(
-            RolePermissions: new HashSet<string>(Codes(rolePermissionIds), StringComparer.OrdinalIgnoreCase),
-            AllowOverrides: new HashSet<string>(Codes(allowIds), StringComparer.OrdinalIgnoreCase),
-            DenyOverrides: new HashSet<string>(Codes(denyIds), StringComparer.OrdinalIgnoreCase),
-            HasAllWarehousesAccess: user.HasAllWarehousesAccess,
-            WarehouseScopes: new HashSet<Guid>(user.Scopes.Select(s => s.WarehouseId)));
+            new HashSet<string>(roleCodes, StringComparer.OrdinalIgnoreCase),
+            new HashSet<string>(overrides.Where(o => o.OverrideType == OverrideType.Allow).Select(o => o.Code), StringComparer.OrdinalIgnoreCase),
+            new HashSet<string>(overrides.Where(o => o.OverrideType == OverrideType.Deny).Select(o => o.Code), StringComparer.OrdinalIgnoreCase),
+            user.HasAllWarehousesAccess, new HashSet<Guid>(scopes));
     }
 }

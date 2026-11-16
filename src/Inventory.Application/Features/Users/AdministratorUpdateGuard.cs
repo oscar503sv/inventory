@@ -12,6 +12,8 @@ internal static class AdministratorUpdateGuard
         ICurrentUser currentUser, string requiredPermission, CancellationToken ct)
     {
         var actorId = currentUser.UserId ?? throw new ForbiddenAccessException();
+        // This entry point runs after the administrator lock; the HTTP policy snapshot may be stale.
+        authorization.Invalidate(actorId);
         var actor = await authorization.GetAuthorizationDataAsync(actorId, ct);
         var effective = PermissionEngine.ComputeEffectivePermissions(actor);
         if (!effective.Contains(Permissions.Users.Manage) || !effective.Contains(requiredPermission))

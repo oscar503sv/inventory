@@ -75,24 +75,3 @@ public sealed class CreateUserCommandHandler : IRequestHandler<CreateUserCommand
             user.HasAllWarehousesAccess, roles.Select(r => r.Name).ToList());
     }
 }
-
-public sealed record GetUsersQuery : IRequest<IReadOnlyList<UserDto>>;
-
-public sealed class GetUsersQueryHandler : IRequestHandler<GetUsersQuery, IReadOnlyList<UserDto>>
-{
-    private readonly IApplicationDbContext _db;
-    public GetUsersQueryHandler(IApplicationDbContext db) => _db = db;
-
-    public async Task<IReadOnlyList<UserDto>> Handle(GetUsersQuery request, CancellationToken cancellationToken)
-    {
-        var users = await _db.Users.AsNoTracking().Include(u => u.Roles)
-            .OrderBy(u => u.Email).ToListAsync(cancellationToken);
-
-        var roleNames = await _db.Roles.AsNoTracking()
-            .ToDictionaryAsync(r => r.Id, r => r.Name, cancellationToken);
-
-        return users.Select(u => new UserDto(
-            u.Id, u.Email, u.UserName, u.FullName, u.IsActive, u.HasAllWarehousesAccess,
-            u.Roles.Select(r => roleNames.GetValueOrDefault(r.RoleId, "?")).ToList())).ToList();
-    }
-}
