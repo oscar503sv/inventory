@@ -1,6 +1,8 @@
+using Inventory.API.RateLimiting;
 using Inventory.Application.Features.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Shared.Contracts.Identity;
 
 namespace Inventory.API.Controllers;
@@ -17,11 +19,15 @@ public sealed class AuthController : ApiControllerBase
     }
 
     [AllowAnonymous]
+    [EnableRateLimiting(AuthRateLimits.PolicyName)]
+    [ServiceFilter(typeof(AuthAccountRateLimitFilter))]
     [HttpPost("login")]
     public async Task<ActionResult<AuthResultDto>> Login([FromBody] LoginCommand command, CancellationToken ct)
         => Ok(await Sender.Send(command, ct));
 
     [AllowAnonymous]
+    [EnableRateLimiting(AuthRateLimits.PolicyName)]
+    [ServiceFilter(typeof(AuthAccountRateLimitFilter))]
     [HttpPost("refresh")]
     public async Task<ActionResult<AuthResultDto>> Refresh([FromBody] RefreshTokenCommand command, CancellationToken ct)
         => Ok(await Sender.Send(command, ct));

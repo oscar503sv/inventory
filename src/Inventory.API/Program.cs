@@ -4,6 +4,7 @@ using Inventory.API.Authentication;
 using Inventory.API.Configuration;
 using Inventory.API.Health;
 using Inventory.API.Middleware;
+using Inventory.API.RateLimiting;
 using Inventory.Application;
 using Inventory.Application.Common.Abstractions;
 using Inventory.Infrastructure;
@@ -12,6 +13,7 @@ using Inventory.Persistence.Seed;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -86,13 +88,32 @@ try
     builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
     builder.Services.AddAuthorization();
 
+    var proxySettings = TrustedProxySettings.Load(config);
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = proxySettings.ForwardedHeaders;
+        options.ForwardLimit = proxySettings.ForwardLimit;
+        options.KnownProxies.Clear();
+        options.KnownIPNetworks.Clear();
+        foreach (var proxy in proxySettings.KnownProxies) options.KnownProxies.Add(proxy);
+        foreach (var network in proxySettings.KnownIPNetworks) options.KnownIPNetworks.Add(network);
+    });
+    var authRateSettings = AuthRateLimitSettings.Load(config);
+    builder.Services.AddSingleton(authRateSettings);
+    builder.Services.AddSingleton<AuthRateLimits>();
+    builder.Services.AddScoped<AuthAccountRateLimitFilter>();
+
     // --- Rate limiting (PRD: Security) ---
     builder.Services.AddRateLimiter(options =>
     {
         options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+        options.OnRejected = (context, _) => new ValueTask(AuthRateLimits.RejectAsync(context.HttpContext, context.Lease));
+        options.AddPolicy(AuthRateLimits.PolicyName, context => RateLimitPartition.GetFixedWindowLimiter(
+            ClientAddress.PartitionKey(context.Connection.RemoteIpAddress),
+            _ => AuthRateLimits.Window(authRateSettings.IpPermitLimit, authRateSettings.WindowSeconds)));
         options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
             RateLimitPartition.GetFixedWindowLimiter(
-                httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+                ClientAddress.PartitionKey(httpContext.Connection.RemoteIpAddress),
                 _ => new FixedWindowRateLimiterOptions { PermitLimit = 100, Window = TimeSpan.FromMinutes(1) }));
     });
 
@@ -130,6 +151,7 @@ try
     var app = builder.Build();
 
     // --- Pipeline ---
+    app.UseForwardedHeaders();
     app.UseMiddleware<CorrelationIdMiddleware>();
     app.UseMiddleware<ExceptionHandlingMiddleware>();
     app.UseStatusCodePages(ProblemResponses.WriteStatusAsync);
