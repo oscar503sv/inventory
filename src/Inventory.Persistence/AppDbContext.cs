@@ -149,7 +149,8 @@ public sealed class AppDbContext : DbContext, IApplicationDbContext
             if (current is PostgresException postgres)
                 return postgres.SqlState is PostgresErrorCodes.DeadlockDetected or PostgresErrorCodes.SerializationFailure
                     || (postgres.SqlState == PostgresErrorCodes.UniqueViolation && postgres.ConstraintName is
-                        "IX_stocks_ProductId_WarehouseId" or "IX_inventory_movements_CreatedBy_IdempotencyKey");
+                        "IX_stocks_ProductId_WarehouseId" or "IX_inventory_movements_CreatedBy_IdempotencyKey"
+                        or "IX_inventory_movements_MovementNumber");
         }
         return false;
     }

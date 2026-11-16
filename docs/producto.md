@@ -167,3 +167,9 @@ Una entrada, salida, transferencia o ajuste nuevo requiere productos activos y b
 No se permiten salidas de una bodega inactiva como excepción para vaciarla. Debe reactivarse temporalmente, realizar las salidas o transferencias con productos activos y volver a desactivarse cuando corresponda. Esta regla evita que una bodega cerrada siga operando por una ruta especial.
 
 Una repetición con la misma clave idempotente y el mismo contenido devuelve el movimiento ya guardado, incluso si después se desactivó el producto o la bodega: no crea movimientos ni modifica existencias. Sigue exigiendo los permisos y el alcance del solicitante. Una clave reutilizada con contenido distinto conserva su respuesta de conflicto.
+
+## Límites operativos y migración de consultas (OZK-65 a OZK-67)
+
+Un movimiento contiene hasta 500 líneas con productos únicos. Sus notas o justificación tienen un máximo de 1024 caracteres y el stock acumulado respeta el máximo `99999999999999.9999` de su almacenamiento decimal. Los límites se comprueban sin persistir cambios parciales.
+
+El frontend debe consumir las consultas v2 de existencias y kardex desde el inicio. Las variantes v1 están deprecadas desde el 16 de noviembre de 2026, limitadas a 200 resultados y con retiro previsto para el 16 de mayo de 2027. La paginación y los filtros de fecha no deben alterar los saldos de apertura ni el orden de secuencia del libro.

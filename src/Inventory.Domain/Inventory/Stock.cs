@@ -34,6 +34,9 @@ public sealed class Stock : AggregateRoot
         if (amount <= 0)
             throw new DomainException("Increase amount must be positive.");
 
+        if (amount > InventoryNumericLimits.MaxStockQuantity - Quantity)
+            throw new DomainException("Stock quantity exceeds the supported maximum.");
+
         Quantity += amount;
         Version++;
     }
@@ -56,6 +59,8 @@ public sealed class Stock : AggregateRoot
     {
         if (newQuantity < 0)
             throw new DomainException("Negative stock is not allowed.");
+        if (newQuantity > InventoryNumericLimits.MaxStockQuantity)
+            throw new DomainException("Stock quantity exceeds the supported maximum.");
         if (newQuantity < ReservedQuantity)
             throw new DomainException("Cannot adjust stock below the reserved quantity.");
 
@@ -68,7 +73,7 @@ public sealed class Stock : AggregateRoot
     {
         if (amount <= 0)
             throw new DomainException("Reserve amount must be positive.");
-        if (ReservedQuantity + amount > Quantity)
+        if (amount > Quantity - ReservedQuantity)
             throw new DomainException("Cannot reserve more than the available quantity.");
 
         ReservedQuantity += amount;

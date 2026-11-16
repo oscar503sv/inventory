@@ -37,6 +37,7 @@ public sealed class InventoryMovementWriter
         if (destinationId is { } target) await InventorySupport.EnsureWarehouseActiveAsync(_db, target, ct);
         var minimums = await InventorySupport.LoadProductMinimumsAsync(_db, request.Lines.Select(line => line.ProductId), ct);
         var lines = request.Lines.Select(line => new InventoryMovementLine(line.ProductId, line.Quantity, line.UnitCost)).ToList();
+        var stocks = await MovementStockSet.LoadAsync(_db, request.Lines.Select(line => line.ProductId), warehouseId, destinationId, ct);
         var number = await _numbers.NextAsync(type, ct);
         var now = _clock.UtcNow;
         var movement = type switch
@@ -48,7 +49,7 @@ public sealed class InventoryMovementWriter
             MovementType.Adjustment => InventoryMovement.CreateAdjustment(number, warehouseId, userId, now, lines, notes!),
             _ => throw new ArgumentOutOfRangeException(nameof(type))
         };
-        await _strategies[type].ApplyAsync(_db, warehouseId, destinationId, request.Lines, minimums, ct);
+        _strategies[type].Apply(stocks, warehouseId, destinationId, request.Lines, minimums, ct);
         movement.SetIdempotency(request.IdempotencyKey, InventorySupport.RequestHash(request));
         _db.InventoryMovements.Add(movement);
         await _db.SaveChangesAsync(ct);

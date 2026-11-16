@@ -36,11 +36,17 @@ public sealed class InventoryController : ApiControllerBase
     public async Task<ActionResult<IReadOnlyList<KardexEntryDto>>> Kardex(
         [FromQuery] Guid productId, [FromQuery] Guid warehouseId,
         [FromQuery] DateTime? fromUtc, [FromQuery] DateTime? toUtc, CancellationToken ct)
-        => Ok(await Sender.Send(new GetKardexQuery(productId, warehouseId, fromUtc, toUtc), ct));
+    {
+        LegacyInventoryDeprecation.Apply(HttpContext, "/api/v2/inventory/kardex");
+        return Ok(await Sender.Send(new GetKardexQuery(productId, warehouseId, fromUtc, toUtc), ct));
+    }
 
     [HttpGet("stock")]
     [RequirePermission(Permissions.Inventory.Read)]
     public async Task<ActionResult<IReadOnlyList<StockDto>>> Stock(
         [FromQuery] Guid? productId, [FromQuery] Guid? warehouseId, CancellationToken ct)
-        => Ok(await Sender.Send(new GetStockQuery(productId, warehouseId), ct));
+    {
+        LegacyInventoryDeprecation.Apply(HttpContext, "/api/v2/inventory/stock");
+        return Ok(await Sender.Send(new GetStockQuery(productId, warehouseId), ct));
+    }
 }

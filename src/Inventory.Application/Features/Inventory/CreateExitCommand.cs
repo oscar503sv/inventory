@@ -14,7 +14,7 @@ public sealed record CreateExitCommand(
 
 public sealed class CreateExitCommandValidator : MovementCommandValidator<CreateExitCommand>
 {
-    public CreateExitCommandValidator()
+    public CreateExitCommandValidator() : base(command => command.Notes)
     {
         RuleFor(x => x.WarehouseId).NotEmpty();
     }
