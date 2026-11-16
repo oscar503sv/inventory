@@ -58,6 +58,9 @@ public sealed class InventoryMovement : AggregateRoot
         if (createdAtUtc == default)
             throw new DomainException("Every movement requires a timestamp.");
 
+        if (notes?.Length > InventoryNumericLimits.MaxNotesLength)
+            throw new DomainException("Movement notes must not exceed 1024 characters.");
+
         _lines.AddRange(lines);
         if (_lines.Count == 0)
             throw new DomainException("A movement must contain at least one line.");

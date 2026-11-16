@@ -14,7 +14,7 @@ public sealed record CreateEntryCommand(
 
 public sealed class CreateEntryCommandValidator : MovementCommandValidator<CreateEntryCommand>
 {
-    public CreateEntryCommandValidator()
+    public CreateEntryCommandValidator() : base(command => command.Notes)
     {
         RuleFor(x => x.WarehouseId).NotEmpty();
     }

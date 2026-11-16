@@ -17,7 +17,7 @@ public sealed record CreateAdjustmentCommand(
 
 public sealed class CreateAdjustmentCommandValidator : MovementCommandValidator<CreateAdjustmentCommand>
 {
-    public CreateAdjustmentCommandValidator() : base("Adjustment count must be positive; use an exit to reach zero stock.")
+    public CreateAdjustmentCommandValidator() : base(command => command.Justification, "Adjustment count must be positive; use an exit to reach zero stock.")
     {
         RuleFor(x => x.WarehouseId).NotEmpty();
         RuleFor(x => x.Justification).NotEmpty().WithMessage("Adjustments require a justification.");

@@ -70,26 +70,6 @@ internal static class InventorySupport
         m.Notes,
         m.Lines.OrderBy(l => l.ProductId).Select(l => new MovementLineDto(l.ProductId, l.Quantity, l.UnitCost)).ToList());
 
-    public static async Task<Stock> GetOrCreateStockAsync(
-        IApplicationDbContext db, Guid productId, Guid warehouseId, CancellationToken ct)
-    {
-        var stock = await db.Stocks
-            .FirstOrDefaultAsync(s => s.ProductId == productId && s.WarehouseId == warehouseId, ct);
-
-        if (stock is null)
-        {
-            stock = new Stock(productId, warehouseId);
-            db.Stocks.Add(stock);
-        }
-
-        return stock;
-    }
-
-    public static async Task<Stock> GetStockOrThrowAsync(
-        IApplicationDbContext db, Guid productId, Guid warehouseId, CancellationToken ct)
-        => await db.Stocks.FirstOrDefaultAsync(s => s.ProductId == productId && s.WarehouseId == warehouseId, ct)
-           ?? throw new ConflictException($"No stock exists for product '{productId}' in warehouse '{warehouseId}'.");
-
     public static async Task EnsureWarehouseActiveAsync(
         IApplicationDbContext db, Guid warehouseId, CancellationToken ct)
     {

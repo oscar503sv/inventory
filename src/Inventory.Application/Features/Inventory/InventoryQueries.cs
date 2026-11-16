@@ -1,4 +1,6 @@
+using FluentValidation;
 using Inventory.Application.Common.Abstractions;
+using Inventory.Application.Common.Queries;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Shared.Contracts.Inventory;
@@ -13,21 +15,39 @@ public sealed class GetStockQueryHandler(IApplicationDbContext db, IPermissionCh
     public async Task<IReadOnlyList<StockDto>> Handle(GetStockQuery request, CancellationToken ct)
     {
         var query = await StockQueries.BuildAsync(db, permissions, request.ProductId, request.WarehouseId, ct);
-        return await query.ToListAsync(ct);
+        return await query.Take(QueryPaging.MaxPageSize).ToListAsync(ct);
     }
 }
 
 public sealed record GetKardexQuery(Guid ProductId, Guid WarehouseId,
-    DateTime? FromUtc = null, DateTime? ToUtc = null) : IRequest<IReadOnlyList<KardexEntryDto>>;
+    DateTime? FromUtc = null, DateTime? ToUtc = null) : IRequest<IReadOnlyList<KardexEntryDto>>, IDateRangeQuery;
 
-public sealed class GetKardexQueryHandler(IApplicationDbContext db, IPermissionChecker permissions)
+public sealed class GetKardexQueryHandler(IKardexReader reader, IPermissionChecker permissions)
     : IRequestHandler<GetKardexQuery, IReadOnlyList<KardexEntryDto>>
 {
     public async Task<IReadOnlyList<KardexEntryDto>> Handle(GetKardexQuery request, CancellationToken ct)
     {
         await permissions.EnsureWarehouseAccessAsync(request.WarehouseId, ct);
-        var history = KardexQueries.Rows(db, request.ProductId, request.WarehouseId);
-        var filtered = KardexQueries.Filter(history, request.FromUtc, request.ToUtc);
-        return await KardexQueries.WithBalances(history, filtered, request.WarehouseId).ToListAsync(ct);
+        return (await reader.ReadAsync(request.ProductId, request.WarehouseId, request.FromUtc, request.ToUtc,
+            1, QueryPaging.MaxPageSize, ct)).Items;
+    }
+}
+
+public sealed class GetStockQueryValidator : AbstractValidator<GetStockQuery>
+{
+    public GetStockQueryValidator()
+    {
+        RuleFor(query => query.ProductId).NotEqual(Guid.Empty);
+        RuleFor(query => query.WarehouseId).NotEqual(Guid.Empty);
+    }
+}
+
+public sealed class GetKardexQueryValidator : AbstractValidator<GetKardexQuery>
+{
+    public GetKardexQueryValidator()
+    {
+        this.AddDateRangeRules();
+        RuleFor(query => query.ProductId).NotEmpty();
+        RuleFor(query => query.WarehouseId).NotEmpty();
     }
 }

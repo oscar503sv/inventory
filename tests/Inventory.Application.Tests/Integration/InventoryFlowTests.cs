@@ -52,7 +52,7 @@ public class InventoryFlowTests
             new CreateEntryCommandHandler(writer),
             new CreateExitCommandHandler(writer),
             new CreateTransferCommandHandler(writer),
-            new GetKardexQueryHandler(db, perms),
+            new GetKardexQueryHandler(new TestKardexReader(db), perms),
             new GetStockQueryHandler(db, perms));
     }
 

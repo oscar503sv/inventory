@@ -18,7 +18,7 @@ public sealed record CreateTransferCommand(
 
 public sealed class CreateTransferCommandValidator : MovementCommandValidator<CreateTransferCommand>
 {
-    public CreateTransferCommandValidator()
+    public CreateTransferCommandValidator() : base(command => command.Notes)
     {
         RuleFor(x => x.SourceWarehouseId).NotEmpty();
         RuleFor(x => x.DestinationWarehouseId).NotEmpty().NotEqual(x => x.SourceWarehouseId)
