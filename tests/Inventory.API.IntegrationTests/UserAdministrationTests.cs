@@ -43,7 +43,7 @@ public sealed class UserAdministrationTests(PostgresApiFixture fixture) : IClass
         try
         {
             var success = Assert.Single(responses, r => r.StatusCode == HttpStatusCode.OK);
-            Assert.Single(responses, r => r.StatusCode == HttpStatusCode.Forbidden);
+            Assert.Single(responses, r => r.StatusCode == HttpStatusCode.Unauthorized);
             var rotated = (await success.Content.ReadFromJsonAsync<AuthResultDto>())!;
             using var scope = fixture.Factory.Services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -52,14 +52,74 @@ public sealed class UserAdministrationTests(PostgresApiFixture fixture) : IClass
             Assert.NotNull(original.RevokedAtUtc);
             Assert.Equal(tokens.Hash(rotated.RefreshToken), original.ReplacedByTokenHash);
             Assert.Single(await db.RefreshTokens.Where(t => t.TokenHash == original.ReplacedByTokenHash
-                && t.RevokedAtUtc == null).ToListAsync());
+                && t.RevokedAtUtc != null).ToListAsync());
             using var next = await client.PostAsJsonAsync("/api/v1/auth/refresh", new { rotated.RefreshToken });
-            Assert.Equal(HttpStatusCode.OK, next.StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, next.StatusCode);
         }
         finally
         {
             foreach (var response in responses) response.Dispose();
         }
+    }
+
+    [Fact]
+    public async Task Reuse_revokes_all_user_sessions_and_records_security_event()
+    {
+        var (admin, adminAuth) = await Login();
+        using var adminLifetime = admin;
+        var user = await Create(admin);
+        var (client, original) = await Login(user.Email);
+        using var clientLifetime = client;
+        var (other, otherAuth) = await Login(user.Email);
+        using var otherLifetime = other;
+        using var rotation = await client.PostAsJsonAsync("/api/v1/auth/refresh", new { original.RefreshToken });
+        rotation.EnsureSuccessStatusCode();
+        var successor = (await rotation.Content.ReadFromJsonAsync<AuthResultDto>())!;
+        var correlation = Guid.NewGuid().ToString();
+        client.DefaultRequestHeaders.Add("X-Correlation-Id", correlation);
+        using var replay = await client.PostAsJsonAsync("/api/v1/auth/refresh", new { original.RefreshToken });
+        Assert.Equal(HttpStatusCode.Unauthorized, replay.StatusCode);
+        using var successorAttempt = await client.PostAsJsonAsync("/api/v1/auth/refresh", new { successor.RefreshToken });
+        using var otherAttempt = await other.PostAsJsonAsync("/api/v1/auth/refresh", new { otherAuth.RefreshToken });
+        Assert.Equal(HttpStatusCode.Forbidden, successorAttempt.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, otherAttempt.StatusCode);
+        using var unaffected = await admin.PostAsJsonAsync("/api/v1/auth/refresh", new { adminAuth.RefreshToken });
+        Assert.Equal(HttpStatusCode.OK, unaffected.StatusCode);
+
+        using var scope = fixture.Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.False(await db.RefreshTokens.AnyAsync(t => t.UserId == user.Id && t.RevokedAtUtc == null));
+        var audit = await db.AuditLogs.SingleAsync(a => a.UserId == user.Id && a.Action == "RefreshTokenReuseDetected");
+        Assert.Equal(correlation, audit.CorrelationId);
+        Assert.Null(audit.OldValues);
+        Assert.Null(audit.NewValues);
+        using var repeated = await client.PostAsJsonAsync("/api/v1/auth/refresh", new { original.RefreshToken });
+        Assert.Equal(HttpStatusCode.Unauthorized, repeated.StatusCode);
+    }
+
+    [Fact]
+    public async Task Unknown_or_expired_unrotated_tokens_do_not_revoke_other_sessions()
+    {
+        var (admin, _) = await Login();
+        using var adminLifetime = admin;
+        var user = await Create(admin);
+        var (client, auth) = await Login(user.Email);
+        using var clientLifetime = client;
+        using var scope = fixture.Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var tokens = scope.ServiceProvider.GetRequiredService<Inventory.Application.Common.Abstractions.IRefreshTokenService>();
+        var expiredToken = tokens.Generate();
+        var now = DateTime.UtcNow;
+        db.RefreshTokens.Add(new Inventory.Domain.Identity.RefreshToken(user.Id, expiredToken.TokenHash,
+            now.AddDays(-2), now.AddDays(-1)));
+        await db.SaveChangesAsync();
+        using var unknown = await client.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = "unknown-token" });
+        using var expired = await client.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = expiredToken.Token });
+        Assert.Equal(HttpStatusCode.Forbidden, unknown.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, expired.StatusCode);
+        Assert.False(await db.AuditLogs.AnyAsync(a => a.UserId == user.Id && a.Action == "RefreshTokenReuseDetected"));
+        using var valid = await client.PostAsJsonAsync("/api/v1/auth/refresh", new { auth.RefreshToken });
+        Assert.Equal(HttpStatusCode.OK, valid.StatusCode);
     }
 
     private static async Task<UserDto> Create(HttpClient admin)
@@ -130,7 +190,7 @@ public sealed class UserAdministrationTests(PostgresApiFixture fixture) : IClass
         var rotatedResponse = await client.PostAsJsonAsync("/api/v1/auth/refresh", new { auth.RefreshToken });
         rotatedResponse.EnsureSuccessStatusCode();
         var rotated = (await rotatedResponse.Content.ReadFromJsonAsync<AuthResultDto>())!;
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/api/v1/auth/refresh", new { auth.RefreshToken })).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/api/v1/auth/refresh", new { auth.RefreshToken })).StatusCode);
         Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync("/api/v1/auth/logout", null)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/api/v1/auth/refresh", new { rotated.RefreshToken })).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/users/me")).StatusCode);

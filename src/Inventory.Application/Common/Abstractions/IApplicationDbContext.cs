@@ -41,5 +41,6 @@ public interface IApplicationDbContext
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     Task<bool> TryRotateRefreshTokenAsync(Guid tokenId, RefreshToken replacement, DateTime nowUtc, CancellationToken cancellationToken);
+    Task ExecuteSessionUpdateAsync(Guid userId, Func<Task> operation, CancellationToken cancellationToken);
     Task ExecuteAdministratorUpdateAsync(Func<Task> operation, CancellationToken cancellationToken);
 }

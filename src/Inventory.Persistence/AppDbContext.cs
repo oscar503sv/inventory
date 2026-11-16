@@ -94,6 +94,7 @@ public sealed class AppDbContext : DbContext, IApplicationDbContext
         Guid tokenId, RefreshToken replacement, DateTime nowUtc, CancellationToken cancellationToken)
     {
         await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
+        await LockUserSessionsAsync(replacement.UserId, cancellationToken);
         var affected = await RefreshTokens
             .Where(t => t.Id == tokenId && t.UserId == replacement.UserId
                 && t.RevokedAtUtc == null && t.ExpiresAtUtc > nowUtc)
@@ -107,6 +108,19 @@ public sealed class AppDbContext : DbContext, IApplicationDbContext
         await transaction.CommitAsync(cancellationToken);
         return true;
     }
+
+    public async Task ExecuteSessionUpdateAsync(Guid userId, Func<Task> operation, CancellationToken cancellationToken)
+    {
+        await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
+        await LockUserSessionsAsync(userId, cancellationToken);
+        await operation();
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    // Serialize rotation and reuse revocation for every session of the same user.
+    private Task LockUserSessionsAsync(Guid userId, CancellationToken cancellationToken)
+        => Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({userId.ToString()}, 0))", cancellationToken);
 
     public async Task ExecuteAdministratorUpdateAsync(Func<Task> operation, CancellationToken cancellationToken)
     {
