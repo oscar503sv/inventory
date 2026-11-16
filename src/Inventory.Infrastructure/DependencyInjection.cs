@@ -23,7 +23,8 @@ public static class DependencyInjection
 
         services.AddScoped<IMovementNumberGenerator, MovementNumberGenerator>();
         services.AddScoped<IDomainEventDispatcher, LoggingDomainEventDispatcher>();
-        services.AddScoped<IUserAuthorizationProvider, UserAuthorizationProvider>();
+        services.AddScoped<UserAuthorizationProvider>();
+        services.AddScoped<IUserAuthorizationProvider, RequestAuthorizationProvider>();
         services.AddScoped<IPermissionChecker, PermissionChecker>();
 
         return services;

@@ -313,6 +313,48 @@ public sealed class AdministratorProtectionTests
         }
     }
 
+    [Fact]
+    public async Task Actor_revoked_while_waiting_for_administrator_lock_cannot_write_using_cached_permissions()
+    {
+        var fixture = new PostgresApiFixture();
+        await fixture.InitializeAsync();
+        try
+        {
+            using var seed = await LoginAsync(fixture, DatabaseSeeder.DefaultAdminEmail, DatabaseSeeder.DefaultAdminPassword);
+            var administrator = (await seed.GetFromJsonAsync<RoleDto[]>("/api/v1/roles"))!
+                .Single(r => r.Name == RoleDefinitions.Administrator).Id;
+            var actor = await CreateAsync(seed);
+            var target = await CreateAsync(seed);
+            await SetAccessAsync(seed, actor.Id, [administrator], []);
+            using var caller = await LoginAsync(fixture, actor.Email, Password);
+            using var scope = fixture.Factory.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await using var connection = new NpgsqlConnection(db.Database.GetConnectionString());
+            await connection.OpenAsync();
+            await using var transaction = await connection.BeginTransactionAsync();
+            await using (var command = new NpgsqlCommand($"SELECT pg_advisory_xact_lock({AdministratorUpdateLockKey})", connection, transaction))
+                await command.ExecuteNonQueryAsync();
+            var path = $"/api/v1/users/{target.Id}";
+            var first = caller.PutAsJsonAsync(path, new { target.Email, target.UserName, fullName = "Must not persist", isActive = true });
+            var second = caller.PutAsJsonAsync(path, new { target.Email, target.UserName, fullName = "Must not persist either", isActive = true });
+            await WaitForAdvisoryWaitersAsync(db.Database.GetConnectionString()!);
+            await using (var revoke = new NpgsqlCommand("DELETE FROM user_roles WHERE \"UserId\" = @id", connection, transaction))
+            {
+                revoke.Parameters.AddWithValue("id", actor.Id);
+                await revoke.ExecuteNonQueryAsync();
+            }
+            await transaction.CommitAsync();
+            var responses = await Task.WhenAll(first, second);
+            foreach (var response in responses)
+            {
+                Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+                response.Dispose();
+            }
+            Assert.Equal(target.FullName, await db.Users.AsNoTracking().Where(u => u.Id == target.Id).Select(u => u.FullName).SingleAsync());
+        }
+        finally { await fixture.DisposeAsync(); }
+    }
+
     private static async Task WaitForAdvisoryWaitersAsync(string connectionString)
     {
         await using var observer = new NpgsqlConnection(connectionString);

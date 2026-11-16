@@ -14,8 +14,8 @@ public sealed class UsersController : ApiControllerBase
 {
     [HttpGet]
     [RequirePermission(Permissions.Users.Manage)]
-    public async Task<ActionResult<IReadOnlyList<UserDto>>> List(CancellationToken ct)
-        => Ok(await Sender.Send(new GetUsersQuery(), ct));
+    public async Task<ActionResult<IReadOnlyList<UserDto>>> List([FromQuery] GetUsersPageQuery query, CancellationToken ct)
+        => Ok((await Sender.Send(query, ct)).Items);
 
     [HttpGet("me")]
     public async Task<ActionResult<CurrentUserDto>> Me(CancellationToken ct)

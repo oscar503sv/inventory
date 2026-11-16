@@ -12,7 +12,6 @@ public sealed class PermissionChecker : IPermissionChecker
 {
     private readonly ICurrentUser _currentUser;
     private readonly IUserAuthorizationProvider _provider;
-    private UserAuthorizationData? _cached;
 
     public PermissionChecker(ICurrentUser currentUser, IUserAuthorizationProvider provider)
     {
@@ -22,14 +21,10 @@ public sealed class PermissionChecker : IPermissionChecker
 
     public async Task<UserAuthorizationData> GetCurrentUserAuthorizationAsync(CancellationToken cancellationToken = default)
     {
-        if (_cached is not null)
-            return _cached;
-
         if (_currentUser.UserId is not { } userId)
             throw new ForbiddenAccessException("No authenticated user.");
 
-        _cached = await _provider.GetAuthorizationDataAsync(userId, cancellationToken);
-        return _cached;
+        return await _provider.GetAuthorizationDataAsync(userId, cancellationToken);
     }
 
     public async Task<bool> CanAccessWarehouseAsync(Guid warehouseId, CancellationToken cancellationToken = default)
