@@ -41,6 +41,9 @@ public sealed class ExceptionHandlingMiddleware
             _ => (StatusCodes.Status500InternalServerError, "An unexpected error occurred")
         };
 
+        if (status == StatusCodes.Status401Unauthorized)
+            context.Response.Headers.WWWAuthenticate = "Bearer";
+
         if (status == StatusCodes.Status500InternalServerError)
             _logger.LogError(exception, "Unhandled exception");
         else

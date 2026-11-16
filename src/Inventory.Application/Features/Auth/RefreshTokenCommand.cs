@@ -46,13 +46,13 @@ public sealed class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCom
         var stored = await _db.RefreshTokens.AsNoTracking().FirstOrDefaultAsync(t => t.TokenHash == incomingHash, cancellationToken);
         if (stored is not null) await RejectReuseAsync(stored, now, cancellationToken);
         if (stored is null || !stored.IsActive(now))
-            throw new ForbiddenAccessException("Invalid or expired refresh token.");
+            throw new UnauthorizedException("Invalid or expired refresh token.");
 
         var user = await _db.Users
             .Include(u => u.Roles)
             .FirstOrDefaultAsync(u => u.Id == stored.UserId, cancellationToken);
         if (user is null || !user.IsActive)
-            throw new ForbiddenAccessException("User is no longer active.");
+            throw new UnauthorizedException("Invalid or expired refresh token.");
 
         // Rotate the refresh token (PRD: refresh token rotation).
         var (token, tokenHash) = _refreshTokens.Generate();
@@ -69,7 +69,7 @@ public sealed class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCom
         {
             var current = await _db.RefreshTokens.AsNoTracking().SingleAsync(t => t.Id == stored.Id, cancellationToken);
             await RejectReuseAsync(current, now, cancellationToken);
-            throw new ForbiddenAccessException("Invalid or expired refresh token.");
+            throw new UnauthorizedException("Invalid or expired refresh token.");
         }
 
         return new AuthResultDto(
