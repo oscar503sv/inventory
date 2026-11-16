@@ -13,11 +13,13 @@ namespace Inventory.API.Controllers;
 [Route("api/v1/inventory/movements")]
 public sealed class MovementsController : ApiControllerBase
 {
+    public const string DetailRouteName = "InventoryMovementDetail";
+
     [HttpGet]
     public async Task<ActionResult<PagedResult<MovementSummaryDto>>> List([FromQuery] GetMovementsQuery query, CancellationToken ct)
         => Ok(await Sender.Send(query, ct));
 
-    [HttpGet("{id:guid}")]
+    [HttpGet("{id:guid}", Name = DetailRouteName)]
     public async Task<ActionResult<MovementDto>> Detail(Guid id, CancellationToken ct)
         => Ok(await Sender.Send(new GetMovementByIdQuery(id), ct));
 }

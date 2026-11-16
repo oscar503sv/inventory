@@ -36,7 +36,7 @@ public class StockTests
 
         var act = () => stock.Decrease(15);
 
-        act.Should().Throw<DomainException>().WithMessage("*Negative stock*");
+        act.Should().Throw<DomainException>().WithMessage("Insufficient available stock.");
     }
 
     [Fact]
@@ -48,7 +48,7 @@ public class StockTests
 
         var act = () => stock.Decrease(30); // would leave 70 < 80 reserved
 
-        act.Should().Throw<DomainException>().WithMessage("*reserved*");
+        act.Should().Throw<DomainException>().WithMessage("Insufficient available stock.");
     }
 
     [Fact]

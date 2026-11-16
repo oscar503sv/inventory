@@ -90,7 +90,7 @@ public class InventoryFlowTests
         var act = async () => await exit.Handle(
             new CreateExitCommand(warehouseId, [new MovementLineInput(productId, 25)], IdempotencyKey: Guid.NewGuid()), default);
 
-        await act.Should().ThrowAsync<DomainException>().WithMessage("*Negative stock*");
+        await act.Should().ThrowAsync<DomainException>().WithMessage("Insufficient available stock.");
     }
 
     [Fact]

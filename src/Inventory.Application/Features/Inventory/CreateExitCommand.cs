@@ -1,7 +1,6 @@
 using FluentValidation;
 using Inventory.Domain.Inventory;
 using MediatR;
-using Shared.Contracts.Inventory;
 
 namespace Inventory.Application.Features.Inventory;
 
@@ -10,7 +9,7 @@ public sealed record CreateExitCommand(
     Guid WarehouseId,
     IReadOnlyList<MovementLineInput> Lines,
     string? Notes = null,
-    Guid IdempotencyKey = default) : IRequest<MovementDto>, IInventoryCommand;
+    Guid IdempotencyKey = default) : IRequest<MovementWriteResult>, IInventoryCommand;
 
 public sealed class CreateExitCommandValidator : MovementCommandValidator<CreateExitCommand>
 {
@@ -20,8 +19,8 @@ public sealed class CreateExitCommandValidator : MovementCommandValidator<Create
     }
 }
 
-public sealed class CreateExitCommandHandler(InventoryMovementWriter writer) : IRequestHandler<CreateExitCommand, MovementDto>
+public sealed class CreateExitCommandHandler(InventoryMovementWriter writer) : IRequestHandler<CreateExitCommand, MovementWriteResult>
 {
-    public Task<MovementDto> Handle(CreateExitCommand request, CancellationToken cancellationToken)
+    public Task<MovementWriteResult> Handle(CreateExitCommand request, CancellationToken cancellationToken)
         => writer.WriteAsync(request, MovementType.Exit, request.WarehouseId, null, request.Notes, cancellationToken);
 }
