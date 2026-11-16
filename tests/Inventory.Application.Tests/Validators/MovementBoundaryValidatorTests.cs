@@ -19,4 +19,17 @@ public sealed class MovementBoundaryValidatorTests
         Assert.Equal(valid, new CreateTransferCommandValidator().Validate(new CreateTransferCommand(warehouse, Guid.NewGuid(), lines, text, key)).IsValid);
         Assert.Equal(valid, new CreateAdjustmentCommandValidator().Validate(new CreateAdjustmentCommand(warehouse, lines, text, key)).IsValid);
     }
+    [Theory]
+    [InlineData("", false)]
+    [InlineData("x", false)]
+    [InlineData("123456789", false)]
+    [InlineData("  short  ", false)]
+    [InlineData("1234567890", true)]
+    [InlineData("  Physical count  ", true)]
+    public void Adjustment_justification_requires_ten_characters_after_trimming(string text, bool valid)
+    {
+        var command = new CreateAdjustmentCommand(Guid.NewGuid(), [new(Guid.NewGuid(), 1)], text, Guid.NewGuid());
+        Assert.Equal(valid, new CreateAdjustmentCommandValidator().Validate(command).IsValid);
+    }
+
 }

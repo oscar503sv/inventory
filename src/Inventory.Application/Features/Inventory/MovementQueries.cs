@@ -52,11 +52,13 @@ internal static class MovementQueries
     }
 }
 
-public sealed class GetMovementsQueryHandler(IApplicationDbContext db, IPermissionChecker permissions)
+public sealed class GetMovementsQueryHandler(IApplicationDbContext db, IPermissionChecker permissions, IDateTimeProvider clock)
     : IRequestHandler<GetMovementsQuery, PagedResult<MovementSummaryDto>>
 {
     public async Task<PagedResult<MovementSummaryDto>> Handle(GetMovementsQuery request, CancellationToken ct)
     {
+        var range = QueryDateRange.Resolve(request, clock.UtcNow);
+        request = request with { FromUtc = range.FromUtc, ToUtc = range.ToUtc };
         var visible = await MovementQueries.VisibleAsync(db, permissions, request.WarehouseId, ct);
         return await MovementQueries.Filter(visible, request).OrderByDescending(m => m.LedgerSequence)
             .Select(m => new MovementSummaryDto(m.Id, m.MovementNumber, m.MovementType.ToString(), m.WarehouseId,

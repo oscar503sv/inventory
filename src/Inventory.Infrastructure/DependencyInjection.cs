@@ -1,7 +1,6 @@
 using Inventory.Application.Common.Abstractions;
 using Inventory.Infrastructure.Authorization;
 using Inventory.Infrastructure.Events;
-using Inventory.Infrastructure.Inventory;
 using Inventory.Infrastructure.Security;
 using Inventory.Infrastructure.Time;
 using Microsoft.Extensions.Configuration;
@@ -21,7 +20,6 @@ public static class DependencyInjection
         services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
         services.AddSingleton<IRefreshTokenService, RefreshTokenService>();
 
-        services.AddScoped<IMovementNumberGenerator, MovementNumberGenerator>();
         services.AddScoped<IDomainEventDispatcher, LoggingDomainEventDispatcher>();
         services.AddScoped<UserAuthorizationProvider>();
         services.AddScoped<IUserAuthorizationProvider, RequestAuthorizationProvider>();

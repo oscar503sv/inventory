@@ -19,7 +19,9 @@ public sealed class CreateAdjustmentCommandValidator : MovementCommandValidator<
     public CreateAdjustmentCommandValidator() : base(command => command.Justification, "Adjustment count must be positive; use an exit to reach zero stock.")
     {
         RuleFor(x => x.WarehouseId).NotEmpty();
-        RuleFor(x => x.Justification).NotEmpty().WithMessage("Adjustments require a justification.");
+        RuleFor(x => x.Justification).NotEmpty().WithMessage("Adjustments require a justification.")
+            .Must(value => value is null || value.Trim().Length >= InventoryNumericLimits.MinAdjustmentJustificationLength)
+            .WithMessage("Adjustment justifications require at least 10 non-padding characters.");
     }
 }
 

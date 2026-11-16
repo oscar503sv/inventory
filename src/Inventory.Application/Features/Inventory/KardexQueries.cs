@@ -21,13 +21,14 @@ public sealed class GetKardexPageQueryValidator : PagedQueryValidator<GetKardexP
     }
 }
 
-public sealed class GetKardexPageQueryHandler(IKardexReader reader, IPermissionChecker permissions)
+public sealed class GetKardexPageQueryHandler(IKardexReader reader, IPermissionChecker permissions, IDateTimeProvider clock)
     : IRequestHandler<GetKardexPageQuery, PagedResult<KardexEntryDto>>
 {
     public async Task<PagedResult<KardexEntryDto>> Handle(GetKardexPageQuery request, CancellationToken ct)
     {
         await permissions.EnsureWarehouseAccessAsync(request.WarehouseId, ct);
-        return await reader.ReadAsync(request.ProductId, request.WarehouseId, request.FromUtc, request.ToUtc,
+        var range = QueryDateRange.Resolve(request, clock.UtcNow);
+        return await reader.ReadAsync(request.ProductId, request.WarehouseId, range.FromUtc, range.ToUtc,
             request.Page, request.PageSize, ct);
     }
 }

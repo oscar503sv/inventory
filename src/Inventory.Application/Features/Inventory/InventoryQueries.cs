@@ -22,13 +22,14 @@ public sealed class GetStockQueryHandler(IApplicationDbContext db, IPermissionCh
 public sealed record GetKardexQuery(Guid ProductId, Guid WarehouseId,
     DateTime? FromUtc = null, DateTime? ToUtc = null) : IRequest<IReadOnlyList<KardexEntryDto>>, IDateRangeQuery;
 
-public sealed class GetKardexQueryHandler(IKardexReader reader, IPermissionChecker permissions)
+public sealed class GetKardexQueryHandler(IKardexReader reader, IPermissionChecker permissions, IDateTimeProvider clock)
     : IRequestHandler<GetKardexQuery, IReadOnlyList<KardexEntryDto>>
 {
     public async Task<IReadOnlyList<KardexEntryDto>> Handle(GetKardexQuery request, CancellationToken ct)
     {
         await permissions.EnsureWarehouseAccessAsync(request.WarehouseId, ct);
-        return (await reader.ReadAsync(request.ProductId, request.WarehouseId, request.FromUtc, request.ToUtc,
+        var range = QueryDateRange.Resolve(request, clock.UtcNow);
+        return (await reader.ReadAsync(request.ProductId, request.WarehouseId, range.FromUtc, range.ToUtc,
             1, QueryPaging.MaxPageSize, ct)).Items;
     }
 }

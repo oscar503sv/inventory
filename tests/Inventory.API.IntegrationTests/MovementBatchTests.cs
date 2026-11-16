@@ -83,6 +83,30 @@ public sealed class MovementBatchTests(PostgresApiFixture fixture) : IClassFixtu
         Assert.Equal(audit, await db.AuditLogs.CountAsync());
     }
 
+    [Theory]
+    [InlineData("123456789", false)]
+    [InlineData("   short   ", false)]
+    [InlineData("1234567890", true)]
+    public async Task Adjustment_justification_minimum_is_validated_before_writes(string justification, bool valid)
+    {
+        var helper = new OperationalApiData(fixture.Factory);
+        var data = await helper.SeedAsync();
+        using var client = await helper.LoginAsync();
+        using var scope = fixture.Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var count = await db.InventoryMovements.CountAsync();
+        var audit = await db.AuditLogs.CountAsync();
+        using var response = await client.PostAsJsonAsync("/api/v1/inventory/adjustments",
+            new CreateAdjustmentCommand(data.Source, [new(data.Product, 1)], justification, Guid.NewGuid()));
+        Assert.Equal(valid ? HttpStatusCode.Created : HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(count + (valid ? 1 : 0), await db.InventoryMovements.CountAsync());
+        if (!valid)
+        {
+            Assert.Equal(audit, await db.AuditLogs.CountAsync());
+            Assert.False(await db.Stocks.AnyAsync(stock => stock.ProductId == data.Product));
+        }
+    }
+
     private static object Command(string operation, InventoryScenario data, MovementLineInput[] lines, string text)
         => operation switch
         {

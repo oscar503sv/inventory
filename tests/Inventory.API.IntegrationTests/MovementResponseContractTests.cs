@@ -74,7 +74,7 @@ public sealed class MovementResponseContractTests(PostgresApiFixture fixture) : 
             "entries" => new CreateEntryCommand(data.Source, lines, "Contract", Guid.NewGuid()),
             "exits" => new CreateExitCommand(data.Source, lines, "Contract", Guid.NewGuid()),
             "transfers" => new CreateTransferCommand(data.Source, data.Destination, lines, "Contract", Guid.NewGuid()),
-            "adjustments" => new CreateAdjustmentCommand(data.Source, lines, "Count", Guid.NewGuid()),
+            "adjustments" => new CreateAdjustmentCommand(data.Source, lines, "Physical count", Guid.NewGuid()),
             _ => throw new ArgumentOutOfRangeException(nameof(operation))
         };
     }

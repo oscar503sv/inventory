@@ -22,6 +22,8 @@ namespace Inventory.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.HasSequence("inventory_movement_number_seq");
+
             modelBuilder.Entity("Inventory.Domain.Audit.AuditLog", b =>
                 {
                     b.Property<Guid>("Id")
