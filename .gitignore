@@ -10,6 +10,7 @@ artifacts/
 *.trx
 coverage/
 TestResults/
+audit/
 
 # Rider / VS Code
 .idea/

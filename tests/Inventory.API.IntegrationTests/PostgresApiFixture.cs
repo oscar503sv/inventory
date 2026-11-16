@@ -15,6 +15,7 @@ public sealed class PostgresApiFixture : IAsyncLifetime
     private string? _adminConnection;
     private bool _created;
     public WebApplicationFactory<Program> Factory { get; private set; } = null!;
+    public RefreshRotationGate RotationGate { get; } = new();
     public ConcurrentSaveGate SaveGate { get; } = new();
 
     public async Task InitializeAsync()
@@ -30,7 +31,7 @@ public sealed class PostgresApiFixture : IAsyncLifetime
         await create.ExecuteNonQueryAsync();
         _created = true;
         settings.Database = _database;
-        Factory = new ApiFactory(settings.ConnectionString, SaveGate);
+        Factory = new ApiFactory(settings.ConnectionString, SaveGate, RotationGate);
         try
         {
             // Start the real API: migrations, seed, authentication and interceptors remain enabled.
@@ -57,7 +58,7 @@ public sealed class PostgresApiFixture : IAsyncLifetime
         _created = false;
     }
 
-    private sealed class ApiFactory(string connection, ConcurrentSaveGate gate) : WebApplicationFactory<Program>
+    private sealed class ApiFactory(string connection, ConcurrentSaveGate gate, RefreshRotationGate rotationGate) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -66,7 +67,7 @@ public sealed class PostgresApiFixture : IAsyncLifetime
             builder.UseSetting("Jwt:SigningKey", Convert.ToBase64String(RandomNumberGenerator.GetBytes(48)));
             builder.ConfigureServices(services =>
             {
-                services.AddDbContext<AppDbContext>(options => options.AddInterceptors(gate));
+                services.AddDbContext<AppDbContext>(options => options.AddInterceptors(gate, rotationGate));
                 // Inventory regression suites deliberately exceed the public per-minute quota.
                 services.Configure<RateLimiterOptions>(options => options.GlobalLimiter = null);
             });
