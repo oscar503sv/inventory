@@ -82,7 +82,9 @@ public sealed class InventoryConstraintTests(PostgresApiFixture fixture) : IClas
             _ => throw new ArgumentOutOfRangeException(nameof(target))
         };
         var error = await Assert.ThrowsAsync<PostgresException>(() => db.Database.ExecuteSqlInterpolatedAsync(sql));
-        Assert.Equal(PostgresErrorCodes.RestrictViolation, error.SqlState);
+        // PostgreSQL 18 changed RESTRICT failures from 23503 to 23001.
+        // https://www.postgresql.org/docs/18/release-18.html
+        Assert.Contains(error.SqlState, new[] { PostgresErrorCodes.ForeignKeyViolation, PostgresErrorCodes.RestrictViolation });
         Assert.True(await db.InventoryMovements.AnyAsync(m => m.Id == transfer.Id));
         Assert.Single(await db.InventoryMovementLines.Where(l => l.MovementId == transfer.Id).ToListAsync());
         Assert.Equal(2, await db.Stocks.CountAsync(s => s.ProductId == data.Product));
