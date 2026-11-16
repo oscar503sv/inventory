@@ -54,7 +54,7 @@ public sealed class UserAdministrationTests(PostgresApiFixture fixture) : IClass
             Assert.Single(await db.RefreshTokens.Where(t => t.TokenHash == original.ReplacedByTokenHash
                 && t.RevokedAtUtc != null).ToListAsync());
             using var next = await client.PostAsJsonAsync("/api/v1/auth/refresh", new { rotated.RefreshToken });
-            Assert.Equal(HttpStatusCode.Forbidden, next.StatusCode);
+            Assert.Equal(HttpStatusCode.Unauthorized, next.StatusCode);
         }
         finally
         {
@@ -81,8 +81,8 @@ public sealed class UserAdministrationTests(PostgresApiFixture fixture) : IClass
         Assert.Equal(HttpStatusCode.Unauthorized, replay.StatusCode);
         using var successorAttempt = await client.PostAsJsonAsync("/api/v1/auth/refresh", new { successor.RefreshToken });
         using var otherAttempt = await other.PostAsJsonAsync("/api/v1/auth/refresh", new { otherAuth.RefreshToken });
-        Assert.Equal(HttpStatusCode.Forbidden, successorAttempt.StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, otherAttempt.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, successorAttempt.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, otherAttempt.StatusCode);
         using var unaffected = await admin.PostAsJsonAsync("/api/v1/auth/refresh", new { adminAuth.RefreshToken });
         Assert.Equal(HttpStatusCode.OK, unaffected.StatusCode);
 
@@ -115,8 +115,8 @@ public sealed class UserAdministrationTests(PostgresApiFixture fixture) : IClass
         await db.SaveChangesAsync();
         using var unknown = await client.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = "unknown-token" });
         using var expired = await client.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = expiredToken.Token });
-        Assert.Equal(HttpStatusCode.Forbidden, unknown.StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, expired.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, unknown.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, expired.StatusCode);
         Assert.False(await db.AuditLogs.AnyAsync(a => a.UserId == user.Id && a.Action == "RefreshTokenReuseDetected"));
         using var valid = await client.PostAsJsonAsync("/api/v1/auth/refresh", new { auth.RefreshToken });
         Assert.Equal(HttpStatusCode.OK, valid.StatusCode);
@@ -192,12 +192,12 @@ public sealed class UserAdministrationTests(PostgresApiFixture fixture) : IClass
         var rotated = (await rotatedResponse.Content.ReadFromJsonAsync<AuthResultDto>())!;
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/api/v1/auth/refresh", new { auth.RefreshToken })).StatusCode);
         Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync("/api/v1/auth/logout", null)).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/api/v1/auth/refresh", new { rotated.RefreshToken })).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/api/v1/auth/refresh", new { rotated.RefreshToken })).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/v1/users/me")).StatusCode);
         var (other, session) = await Login(user.Email);
         using var otherLifetime = other;
         Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync($"/api/v1/users/{user.Id}/sessions")).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await other.PostAsJsonAsync("/api/v1/auth/refresh", new { session.RefreshToken })).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await other.PostAsJsonAsync("/api/v1/auth/refresh", new { session.RefreshToken })).StatusCode);
     }
 
     [Fact]
@@ -211,9 +211,9 @@ public sealed class UserAdministrationTests(PostgresApiFixture fixture) : IClass
         var path = $"/api/v1/users/{user.Id}";
         Assert.Equal(HttpStatusCode.NoContent, (await admin.PutAsJsonAsync(path, new { user.Email, user.UserName, fullName = "Edited", isActive = false })).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/v1/users/me")).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/api/v1/auth/login", new { user.Email, password = Password })).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/api/v1/auth/login", new { user.Email, password = Password })).StatusCode);
         Assert.Equal(HttpStatusCode.NoContent, (await admin.PutAsJsonAsync(path, new { user.Email, user.UserName, fullName = "Edited", isActive = true })).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/api/v1/auth/refresh", new { auth.RefreshToken })).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/api/v1/auth/refresh", new { auth.RefreshToken })).StatusCode);
         Assert.Equal("Edited", (await client.GetFromJsonAsync<CurrentUserDto>("/api/v1/users/me"))!.FullName);
     }
 
@@ -281,7 +281,7 @@ public sealed class UserAdministrationTests(PostgresApiFixture fixture) : IClass
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await db.RefreshTokens.Where(t => t.UserId == user.Id)
             .ExecuteUpdateAsync(setters => setters.SetProperty(t => t.ExpiresAtUtc, DateTime.UtcNow.AddMinutes(-1)));
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/api/v1/auth/refresh", new { auth.RefreshToken })).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/api/v1/auth/refresh", new { auth.RefreshToken })).StatusCode);
     }
 
     [Theory]

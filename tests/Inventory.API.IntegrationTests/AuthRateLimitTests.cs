@@ -62,28 +62,28 @@ public sealed class AuthRateLimitTests(PostgresApiFixture fixture) : IClassFixtu
         refreshRequest.Headers.Add("X-Forwarded-For", "192.0.2.1");
         refreshRequest.Headers.Add("X-Test-Peer", "127.0.0.1");
         using var refresh = await client.SendAsync(refreshRequest);
-        Assert.Equal(HttpStatusCode.Forbidden, refresh.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, refresh.StatusCode);
         await AssertLimited(await client.SendAsync(Login("missing-b@test.local", "192.0.2.1")));
         using var independent = await client.SendAsync(Login("missing-c@test.local", "192.0.2.2"));
-        Assert.Equal(HttpStatusCode.Forbidden, independent.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, independent.StatusCode);
         Assert.Equal("Healthy", await client.GetStringAsync("/health"));
     }
 
     [Fact]
     public async Task Normalized_account_is_blocked_across_addresses_and_recovers_after_window()
     {
-        using var factory = Factory(ipLimit: 100, accountLimit: 2, seconds: 2);
+        using var factory = Factory(ipLimit: 100, accountLimit: 2, seconds: 5);
         using var client = factory.CreateClient();
         using var first = await client.SendAsync(Login(" Unknown@Test.Local ", "192.0.2.1"));
         using var second = await client.SendAsync(Login("unknown@test.local", "192.0.2.2"));
-        Assert.Equal(HttpStatusCode.Forbidden, first.StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, second.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, first.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, second.StatusCode);
         using var blocked = await client.SendAsync(Login("UNKNOWN@test.local", "192.0.2.3"));
         Assert.Equal(HttpStatusCode.TooManyRequests, blocked.StatusCode);
         var delay = blocked.Headers.RetryAfter!.Delta!.Value + TimeSpan.FromMilliseconds(250);
         await Task.Delay(delay);
         using var recovered = await client.SendAsync(Login("unknown@test.local", "192.0.2.4"));
-        Assert.Equal(HttpStatusCode.Forbidden, recovered.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, recovered.StatusCode);
     }
 
     [Fact]
@@ -112,9 +112,9 @@ public sealed class AuthRateLimitTests(PostgresApiFixture fixture) : IClassFixtu
         using var factory = Factory(ipLimit: 1, trustedNetwork: network, trustedProxy: proxy);
         using var client = factory.CreateClient();
         using var first = await client.SendAsync(Login("one@test.local", "192.0.2.30", peer: peer));
-        Assert.Equal(HttpStatusCode.Forbidden, first.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, first.StatusCode);
         using var next = await client.SendAsync(Login("two@test.local", "192.0.2.31", peer: peer));
-        Assert.Equal(blocked ? HttpStatusCode.TooManyRequests : HttpStatusCode.Forbidden, next.StatusCode);
+        Assert.Equal(blocked ? HttpStatusCode.TooManyRequests : HttpStatusCode.Unauthorized, next.StatusCode);
     }
 
     [Fact]
@@ -125,7 +125,7 @@ public sealed class AuthRateLimitTests(PostgresApiFixture fixture) : IClassFixtu
         using var first = await client.SendAsync(Login("one@test.local", "2001:db8:1:2::1"));
         await AssertLimited(await client.SendAsync(Login("two@test.local", "2001:db8:1:2::ffff")));
         using var separate = await client.SendAsync(Login("three@test.local", "2001:db8:1:3::1"));
-        Assert.Equal(HttpStatusCode.Forbidden, separate.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, separate.StatusCode);
     }
 
     [Theory]

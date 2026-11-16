@@ -48,8 +48,9 @@ public sealed class LoginCommandHandler : IRequestHandler<LoginCommand, AuthResu
             .Include(u => u.Roles)
             .FirstOrDefaultAsync(u => u.Email == email, cancellationToken);
 
-        if (user is null || !user.IsActive || !_passwordHasher.Verify(request.Password, user.PasswordHash))
-            throw new ForbiddenAccessException("Invalid credentials.");
+        var isPasswordValid = _passwordHasher.Verify(request.Password, user?.PasswordHash ?? _passwordHasher.DummyHash);
+        if (user is null || !user.IsActive || !isPasswordValid)
+            throw new UnauthorizedException("Invalid credentials.");
 
         var roleIds = user.Roles.Select(r => r.RoleId).ToList();
         var roleNames = await _db.Roles
