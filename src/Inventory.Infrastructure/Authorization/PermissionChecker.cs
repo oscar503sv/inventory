@@ -36,6 +36,6 @@ public sealed class PermissionChecker : IPermissionChecker
     public async Task EnsureWarehouseAccessAsync(Guid warehouseId, CancellationToken cancellationToken = default)
     {
         if (!await CanAccessWarehouseAsync(warehouseId, cancellationToken))
-            throw new ForbiddenAccessException($"You are not authorized for warehouse '{warehouseId}'.");
+            throw new ForbiddenAccessException("You are not authorized to access this warehouse.");
     }
 }
