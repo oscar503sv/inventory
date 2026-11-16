@@ -39,7 +39,7 @@ public sealed class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCom
         var now = _clock.UtcNow;
         var incomingHash = _refreshTokens.Hash(request.RefreshToken);
 
-        var stored = await _db.RefreshTokens.FirstOrDefaultAsync(t => t.TokenHash == incomingHash, cancellationToken);
+        var stored = await _db.RefreshTokens.AsNoTracking().FirstOrDefaultAsync(t => t.TokenHash == incomingHash, cancellationToken);
         if (stored is null || !stored.IsActive(now))
             throw new ForbiddenAccessException("Invalid or expired refresh token.");
 
@@ -51,8 +51,7 @@ public sealed class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCom
 
         // Rotate the refresh token (PRD: refresh token rotation).
         var (token, tokenHash) = _refreshTokens.Generate();
-        stored.Revoke(now, tokenHash);
-        _db.RefreshTokens.Add(new RefreshToken(user.Id, tokenHash, now, _refreshTokens.GetRefreshTokenExpiry(now)));
+        var replacement = new RefreshToken(user.Id, tokenHash, now, _refreshTokens.GetRefreshTokenExpiry(now));
 
         var roleIds = user.Roles.Select(r => r.RoleId).ToList();
         var roleNames = await _db.Roles
@@ -61,7 +60,8 @@ public sealed class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCom
             .ToListAsync(cancellationToken);
 
         var accessToken = _jwt.GenerateAccessToken(user.Id, user.Email, roleNames);
-        await _db.SaveChangesAsync(cancellationToken);
+        if (!await _db.TryRotateRefreshTokenAsync(stored.Id, replacement, now, cancellationToken))
+            throw new ForbiddenAccessException("Invalid or expired refresh token.");
 
         return new AuthResultDto(
             accessToken, token, _jwt.GetAccessTokenExpiry(now), user.Id, user.Email, roleNames);

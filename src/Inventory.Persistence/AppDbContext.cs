@@ -90,6 +90,24 @@ public sealed class AppDbContext : DbContext, IApplicationDbContext
         return result;
     }
 
+    public async Task<bool> TryRotateRefreshTokenAsync(
+        Guid tokenId, RefreshToken replacement, DateTime nowUtc, CancellationToken cancellationToken)
+    {
+        await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
+        var affected = await RefreshTokens
+            .Where(t => t.Id == tokenId && t.UserId == replacement.UserId
+                && t.RevokedAtUtc == null && t.ExpiresAtUtc > nowUtc)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(t => t.RevokedAtUtc, nowUtc)
+                .SetProperty(t => t.ReplacedByTokenHash, replacement.TokenHash), cancellationToken);
+        if (affected != 1) return false;
+
+        RefreshTokens.Add(replacement);
+        await SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return true;
+    }
+
     public async Task ExecuteAdministratorUpdateAsync(Func<Task> operation, CancellationToken cancellationToken)
     {
         await using var transaction = await Database.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellationToken);

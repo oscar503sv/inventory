@@ -31,6 +31,37 @@ public sealed class UserAdministrationTests(PostgresApiFixture fixture) : IClass
         return (client, auth);
     }
 
+    [Fact]
+    public async Task Concurrent_refresh_issues_exactly_one_successor()
+    {
+        var (client, auth) = await Login();
+        using var ownedClient = client;
+        fixture.RotationGate.Arm();
+        var responses = await Task.WhenAll(
+            client.PostAsJsonAsync("/api/v1/auth/refresh", new { auth.RefreshToken }),
+            client.PostAsJsonAsync("/api/v1/auth/refresh", new { auth.RefreshToken }));
+        try
+        {
+            var success = Assert.Single(responses, r => r.StatusCode == HttpStatusCode.OK);
+            Assert.Single(responses, r => r.StatusCode == HttpStatusCode.Forbidden);
+            var rotated = (await success.Content.ReadFromJsonAsync<AuthResultDto>())!;
+            using var scope = fixture.Factory.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tokens = scope.ServiceProvider.GetRequiredService<Inventory.Application.Common.Abstractions.IRefreshTokenService>();
+            var original = await db.RefreshTokens.SingleAsync(t => t.TokenHash == tokens.Hash(auth.RefreshToken));
+            Assert.NotNull(original.RevokedAtUtc);
+            Assert.Equal(tokens.Hash(rotated.RefreshToken), original.ReplacedByTokenHash);
+            Assert.Single(await db.RefreshTokens.Where(t => t.TokenHash == original.ReplacedByTokenHash
+                && t.RevokedAtUtc == null).ToListAsync());
+            using var next = await client.PostAsJsonAsync("/api/v1/auth/refresh", new { rotated.RefreshToken });
+            Assert.Equal(HttpStatusCode.OK, next.StatusCode);
+        }
+        finally
+        {
+            foreach (var response in responses) response.Dispose();
+        }
+    }
+
     private static async Task<UserDto> Create(HttpClient admin)
     {
         var response = await admin.PostAsJsonAsync("/api/v1/users", new
