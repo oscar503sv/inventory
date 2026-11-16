@@ -58,20 +58,60 @@ public sealed class MovementQueryTests(PostgresApiFixture fixture) : IClassFixtu
             : mode == "source" ? [entry.Id] : mode == "destination" ? [destinationEntry.Id] : [];
         Assert.Equal(expected.Length, page.TotalCount);
         Assert.Equal(expected, page.Items.Select(m => m.Id));
+        foreach (var movement in new[] { entry, destinationEntry })
+        {
+            var canRead = mode == "global" || warehouses.Contains(movement.WarehouseId);
+            using var detail = await client.GetAsync($"/api/v1/inventory/movements/{movement.Id}");
+            Assert.Equal(canRead ? HttpStatusCode.OK : HttpStatusCode.NotFound, detail.StatusCode);
+        }
         var response = await client.GetAsync($"/api/v1/inventory/movements/{transfer.Id}");
         if (fullAccess) Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        else await OperationalApiData.ProblemAsync(response, HttpStatusCode.Forbidden);
+        else
+        {
+            var hidden = await OperationalApiData.ProblemAsync(response, HttpStatusCode.NotFound);
+            var missing = await OperationalApiData.ProblemAsync(
+                await client.GetAsync($"/api/v1/inventory/movements/{Guid.NewGuid()}"), HttpStatusCode.NotFound);
+            Assert.Equal(missing.Title, hidden.Title);
+            Assert.Equal(missing.Detail, hidden.Detail);
+            Assert.Equal("Movement was not found.", hidden.Detail);
+            Assert.DoesNotContain(data.Source.ToString(), hidden.Detail!);
+            Assert.DoesNotContain(data.Destination.ToString(), hidden.Detail!);
+        }
         if (!fullAccess)
         {
             var denied = mode == "source" ? data.Destination : data.Source;
-            await OperationalApiData.ProblemAsync(await client.GetAsync($"/api/v1/inventory/movements?warehouseId={denied}"), HttpStatusCode.Forbidden);
+            var problem = await OperationalApiData.ProblemAsync(
+                await client.GetAsync($"/api/v1/inventory/movements?warehouseId={denied}"), HttpStatusCode.Forbidden);
+            Assert.Equal("You are not authorized to access this warehouse.", problem.Detail);
+            Assert.DoesNotContain(denied.ToString(), problem.Detail!);
         }
+    }
+
+    [Theory]
+    [InlineData("entries")]
+    [InlineData("exits")]
+    [InlineData("adjustments")]
+    [InlineData("transfers")]
+    public async Task Movement_writes_outside_scope_return_403_without_warehouse_ids(string operation)
+    {
+        var data = await _data.SeedAsync();
+        var user = await _data.UserAsync([Permissions.Inventory.EntryCreate, Permissions.Inventory.ExitCreate,
+            Permissions.Inventory.AdjustCreate, Permissions.Inventory.TransferCreate],
+            operation == "transfers" ? [data.Source] : []);
+        using var client = await _data.LoginAsync(user);
+        // A transfer passes the source check, then fails the destination check.
+        var command = MovementResponseContractTests.Command(operation, data);
+        var problem = await OperationalApiData.ProblemAsync(
+            await client.PostAsJsonAsync("/api/v1/inventory/" + operation, command), HttpStatusCode.Forbidden);
+        Assert.Equal("You are not authorized to access this warehouse.", problem.Detail);
+        Assert.DoesNotContain(data.Source.ToString(), problem.Detail!);
+        Assert.DoesNotContain(data.Destination.ToString(), problem.Detail!);
     }
 
     [Fact]
     public async Task test_operational_queries_anonymous_and_denied_permissions_return_problem_details()
     {
-        var paths = new[] { "/api/v1/audit-logs", "/api/v1/inventory/movements", "/api/v2/inventory/stock", "/api/v2/inventory/kardex" };
+        var paths = new[] { "/api/v1/audit-logs", "/api/v1/inventory/movements", "/api/v2/inventory/stock", "/api/v2/inventory/kardex", $"/api/v1/inventory/movements/{Guid.NewGuid()}" };
         using var anonymous = fixture.Factory.CreateClient();
         var user = await _data.UserAsync([], [], true, RoleDefinitions.Administrator,
             [Permissions.Inventory.Read, Permissions.Audit.Read]);

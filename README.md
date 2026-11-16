@@ -124,7 +124,7 @@ Los filtros de fechas son inclusivos y reciben ISO 8601 UTC, por ejemplo `2026-1
 
 Las consultas de stock y kardex de `/api/v1` conservan su respuesta histórica en forma de arreglo para compatibilidad. Los clientes nuevos deben usar `/api/v2` para disponer de paginación. Swagger de Development separa ambos contratos en `/swagger/v1/swagger.json` y `/swagger/v2/swagger.json`.
 
-El total de movimientos y stock solo cuenta filas autorizadas. Leer un movimiento completo de transferencia exige acceso a ambas bodegas; si falta uno de los alcances, se omite del listado y su detalle devuelve `403`. Consultar un filtro explícito de bodega fuera de alcance devuelve `403`. Un UUID de movimiento inexistente devuelve `404`. El kardex de una bodega autorizada puede mostrar su parte de una transferencia sin revelar el detalle de la otra bodega.
+El total de movimientos y stock solo cuenta filas autorizadas. Leer un movimiento completo de transferencia exige acceso a ambas bodegas; si falta uno de los alcances, se omite del listado y su detalle devuelve `404`, igual que un movimiento inexistente (`Movement was not found.`). El detalle filtra por alcance antes de buscar el UUID. Consultar un filtro explícito de bodega fuera de alcance devuelve `403`, con un mensaje genérico sin UUID de bodega; la misma regla de mensaje se aplica a las escrituras fuera de alcance. El kardex de una bodega autorizada puede mostrar su parte de una transferencia sin revelar el detalle de la otra bodega.
 
 Los saldos del kardex se calculan con el historial anterior completo, incluyendo ajustes, antes de presentar la página y el rango de fechas. No se reinicia el saldo al cambiar de página. La consulta paginada se ejecuta en PostgreSQL y no carga todo el historial en memoria.
 

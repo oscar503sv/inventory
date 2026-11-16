@@ -77,11 +77,9 @@ public sealed class GetMovementByIdQueryHandler(IApplicationDbContext db, IPermi
 {
     public async Task<MovementDto> Handle(GetMovementByIdQuery request, CancellationToken ct)
     {
-        var movement = await db.InventoryMovements.AsNoTracking().Include(m => m.Lines)
-            .SingleOrDefaultAsync(m => m.Id == request.Id, ct) ?? throw NotFoundException.For("Movement", request.Id);
-        await permissions.EnsureWarehouseAccessAsync(movement.WarehouseId, ct);
-        if (movement.DestinationWarehouseId is { } destination)
-            await permissions.EnsureWarehouseAccessAsync(destination, ct);
+        var visible = await MovementQueries.VisibleAsync(db, permissions, null, ct);
+        var movement = await visible.Include(m => m.Lines)
+            .SingleOrDefaultAsync(m => m.Id == request.Id, ct) ?? throw new NotFoundException("Movement was not found.");
         return movement.ToDto();
     }
 }
