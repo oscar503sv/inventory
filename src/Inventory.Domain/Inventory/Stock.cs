@@ -45,10 +45,8 @@ public sealed class Stock : AggregateRoot
     {
         if (amount <= 0)
             throw new DomainException("Decrease amount must be positive.");
-        if (Quantity - amount < 0)
-            throw new DomainException("Negative stock is not allowed.");
-        if (Quantity - amount < ReservedQuantity)
-            throw new DomainException("Cannot reduce stock below the reserved quantity.");
+        if (amount > AvailableQuantity)
+            throw new DomainException("Insufficient available stock.");
 
         Quantity -= amount;
         Version++;

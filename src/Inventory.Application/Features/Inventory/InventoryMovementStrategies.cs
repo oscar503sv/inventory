@@ -31,7 +31,7 @@ public sealed class ExitStockStrategy : IInventoryMovementStrategy
     {
         foreach (var line in lines)
         {
-            var stock = stocks.GetRequired(line.ProductId, warehouseId);
+            var stock = stocks.GetOrCreate(line.ProductId, warehouseId);
             stock.Decrease(line.Quantity);
             stock.CheckMinimum(minimums[line.ProductId]);
         }
@@ -46,7 +46,7 @@ public sealed class TransferStockStrategy : IInventoryMovementStrategy
     {
         foreach (var line in lines)
         {
-            var source = stocks.GetRequired(line.ProductId, warehouseId);
+            var source = stocks.GetOrCreate(line.ProductId, warehouseId);
             source.Decrease(line.Quantity);
             source.CheckMinimum(minimums[line.ProductId]);
             var destination = stocks.GetOrCreate(line.ProductId, destinationId!.Value);

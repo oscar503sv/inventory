@@ -42,12 +42,12 @@ public sealed class MovementBatchTests(PostgresApiFixture fixture) : IClassFixtu
         {
             using var seed = await client.PostAsJsonAsync("/api/v1/inventory/entries", new CreateEntryCommand(data.Source,
                 products.Select(product => new MovementLineInput(product.Id, 10)).ToArray(), IdempotencyKey: Guid.NewGuid()));
-            Assert.Equal(HttpStatusCode.OK, seed.StatusCode);
+            Assert.Equal(HttpStatusCode.Created, seed.StatusCode);
         }
         counter.Reset();
         using var response = await client.PostAsJsonAsync("/api/v1/inventory/" + operation,
             Command(operation, data, lines, new string('n', 1024)));
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         Assert.Equal(count, (await response.Content.ReadFromJsonAsync<MovementDto>())!.Lines.Count);
         Assert.Equal(1, counter.Count);
         var ids = products.Select(product => product.Id).ToArray();

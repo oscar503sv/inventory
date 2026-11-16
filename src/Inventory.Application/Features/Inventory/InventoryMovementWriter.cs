@@ -1,6 +1,6 @@
 using Inventory.Application.Common.Abstractions;
+using Inventory.Application.Common.Exceptions;
 using Inventory.Domain.Inventory;
-using Shared.Contracts.Inventory;
 
 namespace Inventory.Application.Features.Inventory;
 
@@ -24,14 +24,16 @@ public sealed class InventoryMovementWriter
         _strategies = strategies.ToDictionary(strategy => strategy.Type);
     }
 
-    public async Task<MovementDto> WriteAsync(IInventoryCommand request, MovementType type,
+    public async Task<MovementWriteResult> WriteAsync(IInventoryCommand request, MovementType type,
         Guid warehouseId, Guid? destinationId, string? notes, CancellationToken ct)
     {
+        if (!_currentUser.IsAuthenticated || _currentUser.UserId is not { } userId || userId == Guid.Empty)
+            throw new UnauthorizedException("Authentication is required.");
+
         await _permissions.EnsureWarehouseAccessAsync(warehouseId, ct);
         if (destinationId is { } destination) await _permissions.EnsureWarehouseAccessAsync(destination, ct);
-        var userId = _currentUser.UserId ?? Guid.Empty;
         var replay = await InventorySupport.FindReplayAsync(_db, userId, request, ct);
-        if (replay is not null) return replay;
+        if (replay is not null) return new(replay, IsReplay: true);
 
         await InventorySupport.EnsureWarehouseActiveAsync(_db, warehouseId, ct);
         if (destinationId is { } target) await InventorySupport.EnsureWarehouseActiveAsync(_db, target, ct);
@@ -53,6 +55,6 @@ public sealed class InventoryMovementWriter
         movement.SetIdempotency(request.IdempotencyKey, InventorySupport.RequestHash(request));
         _db.InventoryMovements.Add(movement);
         await _db.SaveChangesAsync(ct);
-        return movement.ToDto();
+        return new(movement.ToDto(), IsReplay: false);
     }
 }

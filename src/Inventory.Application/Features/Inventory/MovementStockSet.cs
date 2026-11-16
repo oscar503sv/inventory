@@ -1,5 +1,4 @@
 using Inventory.Application.Common.Abstractions;
-using Inventory.Application.Common.Exceptions;
 using Inventory.Domain.Inventory;
 using Microsoft.EntityFrameworkCore;
 
@@ -35,7 +34,4 @@ public sealed class MovementStockSet
         return stock;
     }
 
-    public Stock GetRequired(Guid product, Guid warehouse)
-        => _stocks.TryGetValue((product, warehouse), out var stock) ? stock
-            : throw new ConflictException($"No stock exists for product '{product}' in warehouse '{warehouse}'.");
 }

@@ -12,24 +12,32 @@ namespace Inventory.API.Controllers;
 public sealed class InventoryController : ApiControllerBase
 {
     [HttpPost("entries")]
+    [ProducesResponseType(typeof(MovementDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(MovementDto), StatusCodes.Status200OK)]
     [RequirePermission(Permissions.Inventory.EntryCreate)]
     public async Task<ActionResult<MovementDto>> CreateEntry([FromBody] CreateEntryCommand command, CancellationToken ct)
-        => Ok(await Sender.Send(command, ct));
+        => MovementResponse(await Sender.Send(command, ct));
 
     [HttpPost("exits")]
+    [ProducesResponseType(typeof(MovementDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(MovementDto), StatusCodes.Status200OK)]
     [RequirePermission(Permissions.Inventory.ExitCreate)]
     public async Task<ActionResult<MovementDto>> CreateExit([FromBody] CreateExitCommand command, CancellationToken ct)
-        => Ok(await Sender.Send(command, ct));
+        => MovementResponse(await Sender.Send(command, ct));
 
     [HttpPost("transfers")]
+    [ProducesResponseType(typeof(MovementDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(MovementDto), StatusCodes.Status200OK)]
     [RequirePermission(Permissions.Inventory.TransferCreate)]
     public async Task<ActionResult<MovementDto>> CreateTransfer([FromBody] CreateTransferCommand command, CancellationToken ct)
-        => Ok(await Sender.Send(command, ct));
+        => MovementResponse(await Sender.Send(command, ct));
 
     [HttpPost("adjustments")]
+    [ProducesResponseType(typeof(MovementDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(MovementDto), StatusCodes.Status200OK)]
     [RequirePermission(Permissions.Inventory.AdjustCreate)]
     public async Task<ActionResult<MovementDto>> CreateAdjustment([FromBody] CreateAdjustmentCommand command, CancellationToken ct)
-        => Ok(await Sender.Send(command, ct));
+        => MovementResponse(await Sender.Send(command, ct));
 
     [HttpGet("kardex")]
     [RequirePermission(Permissions.Inventory.Read)]
@@ -49,4 +57,8 @@ public sealed class InventoryController : ApiControllerBase
         LegacyInventoryDeprecation.Apply(HttpContext, "/api/v2/inventory/stock");
         return Ok(await Sender.Send(new GetStockQuery(productId, warehouseId), ct));
     }
+    private ActionResult<MovementDto> MovementResponse(MovementWriteResult result)
+        => result.IsReplay ? Ok(result.Movement)
+            : CreatedAtRoute(MovementsController.DetailRouteName, new { id = result.Movement.Id }, result.Movement);
+
 }

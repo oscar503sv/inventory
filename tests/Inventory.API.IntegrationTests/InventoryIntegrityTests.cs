@@ -62,7 +62,7 @@ public sealed class InventoryIntegrityTests(PostgresApiFixture fixture) : IClass
         await Send(client, "entries", Entry(data, 1));
         var transfer = new CreateTransferCommand(data.Source, data.Destination,
             [new(data.Product, 1)], IdempotencyKey: Guid.NewGuid());
-        Assert.Equal(global ? HttpStatusCode.OK : HttpStatusCode.Forbidden,
+        Assert.Equal(global ? HttpStatusCode.Created : HttpStatusCode.Forbidden,
             (await client.PostAsJsonAsync("/api/v1/inventory/transfers", transfer)).StatusCode);
         if (!global)
         {
@@ -126,16 +126,16 @@ public sealed class InventoryIntegrityTests(PostgresApiFixture fixture) : IClass
         var userLogs = logs.Where(l => l.Entity == "User" && ((l.NewValues ?? "") + (l.OldValues ?? "")).Contains(email)).ToList();
         Assert.Equal(new[] { "Created", "Deleted", "Updated" }, userLogs.Select(l => l.Action).Order());
         foreach (var log in logs)
-        foreach (var json in new[] { log.OldValues, log.NewValues }.OfType<string>())
-        {
-            Assert.DoesNotContain(oldHash, json);
-            Assert.DoesNotContain(newHash, json);
-            Assert.DoesNotContain(Password, json);
-            Assert.DoesNotContain(auth.AccessToken, json);
-            Assert.DoesNotContain(auth.RefreshToken, json);
-            foreach (var property in JsonDocument.Parse(json).RootElement.EnumerateObject())
-                Assert.DoesNotMatch("(?i)password|hash|token|secret", property.Name);
-        }
+            foreach (var json in new[] { log.OldValues, log.NewValues }.OfType<string>())
+            {
+                Assert.DoesNotContain(oldHash, json);
+                Assert.DoesNotContain(newHash, json);
+                Assert.DoesNotContain(Password, json);
+                Assert.DoesNotContain(auth.AccessToken, json);
+                Assert.DoesNotContain(auth.RefreshToken, json);
+                foreach (var property in JsonDocument.Parse(json).RootElement.EnumerateObject())
+                    Assert.DoesNotMatch("(?i)password|hash|token|secret", property.Name);
+            }
     }
 
     [Theory]
@@ -223,7 +223,7 @@ public sealed class InventoryIntegrityTests(PostgresApiFixture fixture) : IClass
         var responses = await Task.WhenAll(
             client.PostAsJsonAsync("/api/v1/inventory/adjustments", adjustment),
             client.PostAsJsonAsync("/api/v1/inventory/exits", exit));
-        Assert.Single(responses, r => r.StatusCode == HttpStatusCode.OK);
+        Assert.Single(responses, r => r.StatusCode == HttpStatusCode.Created);
         Assert.Single(responses, r => r.StatusCode == HttpStatusCode.Conflict);
         var adjustmentWon = responses[0].IsSuccessStatusCode;
         await Send(client, "adjustments", adjustment);
@@ -250,7 +250,7 @@ public sealed class InventoryIntegrityTests(PostgresApiFixture fixture) : IClass
         var requests = Enumerable.Range(0, 2).Select(_ => Request(operation, data, Guid.NewGuid(), [new(data.Product, quantity)])).ToArray();
         fixture.SaveGate.Arm(data.Product);
         var responses = await Task.WhenAll(requests.Select(r => client.PostAsJsonAsync("/api/v1/inventory/" + operation, r)));
-        Assert.Single(responses, r => r.StatusCode == HttpStatusCode.OK);
+        Assert.Single(responses, r => r.StatusCode == HttpStatusCode.Created);
         Assert.Single(responses, r => r.StatusCode == HttpStatusCode.Conflict);
         var failed = Array.FindIndex(responses, r => r.StatusCode == HttpStatusCode.Conflict);
         await Send(client, operation, requests[failed]);
@@ -270,7 +270,7 @@ public sealed class InventoryIntegrityTests(PostgresApiFixture fixture) : IClass
         fixture.SaveGate.Arm(data.Product);
         var responses = await Task.WhenAll(Enumerable.Range(0, 2)
             .Select(_ => client.PostAsJsonAsync("/api/v1/inventory/entries", request)));
-        var success = Assert.Single(responses, r => r.StatusCode == HttpStatusCode.OK);
+        var success = Assert.Single(responses, r => r.StatusCode == HttpStatusCode.Created);
         Assert.Single(responses, r => r.StatusCode == HttpStatusCode.Conflict);
         var first = (await success.Content.ReadFromJsonAsync<MovementDto>())!;
         var replay = await Send(client, "entries", request);
@@ -287,7 +287,7 @@ public sealed class InventoryIntegrityTests(PostgresApiFixture fixture) : IClass
         var requests = Enumerable.Range(0, 2).Select(_ => Request("exits", data, Guid.NewGuid(), [new(data.Product, 7)])).ToArray();
         fixture.SaveGate.Arm(data.Product);
         var responses = await Task.WhenAll(requests.Select(r => client.PostAsJsonAsync("/api/v1/inventory/exits", r)));
-        Assert.Single(responses, r => r.StatusCode == HttpStatusCode.OK);
+        Assert.Single(responses, r => r.StatusCode == HttpStatusCode.Created);
         var failed = Array.FindIndex(responses, r => r.StatusCode == HttpStatusCode.Conflict);
         Assert.True(failed >= 0);
         Assert.Equal(HttpStatusCode.UnprocessableEntity,
@@ -431,7 +431,8 @@ public sealed class InventoryIntegrityTests(PostgresApiFixture fixture) : IClass
     {
         var response = await client.PostAsJsonAsync("/api/v1/auth/login", new
         {
-            email, password = email == DatabaseSeeder.DefaultAdminEmail ? DatabaseSeeder.DefaultAdminPassword : Password
+            email,
+            password = email == DatabaseSeeder.DefaultAdminEmail ? DatabaseSeeder.DefaultAdminPassword : Password
         });
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var auth = (await response.Content.ReadFromJsonAsync<AuthResultDto>())!;
@@ -453,7 +454,7 @@ public sealed class InventoryIntegrityTests(PostgresApiFixture fixture) : IClass
     private static async Task<MovementDto> Send(HttpClient client, string operation, object request)
     {
         using var response = await client.PostAsJsonAsync("/api/v1/inventory/" + operation, request);
-        Assert.True(response.StatusCode == HttpStatusCode.OK,
+        Assert.True(response.StatusCode is HttpStatusCode.OK or HttpStatusCode.Created,
             $"{operation}: {response.StatusCode} {await response.Content.ReadAsStringAsync()}");
         return (await response.Content.ReadFromJsonAsync<MovementDto>())!;
     }

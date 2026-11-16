@@ -58,7 +58,7 @@ public sealed class InactiveInventoryTests(PostgresApiFixture fixture) : IClassF
         await OperationalApiData.MoveAsync(client, data, "entries", 20);
         var command = Command(operation, data, Guid.NewGuid());
         using var response = await client.PostAsJsonAsync("/api/v1/inventory/" + operation, command);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var movement = (await response.Content.ReadFromJsonAsync<MovementDto>())!;
         using var scope = fixture.Factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();

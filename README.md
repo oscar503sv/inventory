@@ -67,7 +67,7 @@ Los cuatro POST de `/api/v1/inventory` requieren `idempotencyKey`, un UUID no va
 }
 ```
 
-Conservar esa clave y el contenido del comando al reintentar. La clave se reserva por usuario entre los cuatro tipos de movimiento y permanece mientras exista el movimiento. Una repetición confirmada devuelve `200` con el movimiento original, sin cambiar stock ni añadir auditorías. Reutilizar la clave con otro contenido o tipo devuelve `409`. Los movimientos históricos anteriores a esta migración no tienen clave.
+Una creación confirmada devuelve `201 Created` con `Location` hacia `/api/v1/inventory/movements/{id}`. Conservar esa clave y el contenido del comando al reintentar. La clave se reserva por usuario entre los cuatro tipos de movimiento y permanece mientras exista el movimiento. Una repetición confirmada devuelve `200` con el movimiento original, sin cambiar stock ni añadir auditorías. Reutilizar la clave con otro contenido o tipo devuelve `409`. Los movimientos históricos anteriores a esta migración no tienen clave.
 
 Un conflicto de escritura simultánea devuelve `409 ProblemDetails` y revierte toda la operación. El cliente puede reintentar la solicitud completa con la misma clave y contenido, usando una espera entre intentos. Esto también aplica a duplicados que llegan simultáneamente: uno confirma y el otro puede recibir `409`; su siguiente intento devuelve el resultado confirmado. Un reintento se valida contra el saldo actual y puede recibir `422`, por ejemplo si ya no hay stock suficiente. Las solicitudes fallidas no consumen su clave.
 
@@ -214,3 +214,23 @@ El kardex usa funciones de ventana en PostgreSQL para conservar ajustes absoluto
 Los GET v1 de `/api/v1/inventory/stock` y `/api/v1/inventory/kardex` conservan sus arrays, pero devuelven como máximo **200 filas**. Kardex v1 valida UUID y fechas con las mismas reglas que v2. Ambos anuncian deprecación desde el **16 de noviembre de 2026** y retiro previsto el **16 de mayo de 2027**, mediante `Deprecation`, `Sunset` y un enlace `successor-version`. El frontend debe usar **v2 desde su primera implementación** para obtener `PagedResult`, totales y todas las páginas. Las fechas de `Deprecation` y `Sunset` usan sus respectivos formatos definidos en [RFC 9745](https://www.rfc-editor.org/rfc/rfc9745.html) y [RFC 8594](https://www.rfc-editor.org/rfc/rfc8594.html).
 
 Las pruebas nuevas cubren 500/501 líneas, una consulta de stock por lote, notas y justificaciones de 1024/1025 caracteres, desbordamiento acumulado, colisión de numeración, validación de fechas v1 y límites/cabeceras de deprecación. Se mantienen las regresiones de entidades inactivas, idempotencia, concurrencia, atomicidad y ajustes del kardex.
+
+
+### Contrato de escritura de movimientos (OZK-73 y OZK-74)
+
+Los cuatro POST de entradas, salidas, transferencias y ajustes devuelven el mismo `MovementDto` como cuerpo. La creación nueva responde `201` y `Location` apunta al detalle existente del movimiento. La repetición idempotente confirmada responde `200`, sin `Location`, con el DTO original y sin cambios en stock o auditoría. El indicador `IsReplay` solo forma parte del resultado interno de aplicación: no se añade al JSON. OpenAPI documenta ambos estados de éxito.
+
+| Estado | Resultado |
+| --- | --- |
+| `201` | Movimiento nuevo confirmado; incluye `Location`. |
+| `200` | Repetición idempotente válida del movimiento existente. |
+| `400` | Entrada inválida, límites o clave ausente. |
+| `401` | Usuario no autenticado o identificador de usuario ausente/vacío. |
+| `403` | Falta de permiso o alcance sobre una bodega. |
+| `404` | Referencias de producto o bodega inexistentes. |
+| `409` | Conflicto de idempotencia, concurrencia o numeración. |
+| `422` | Regla de negocio: stock disponible insuficiente, entidades inactivas o límites acumulados. |
+
+Las salidas y transferencias tratan la ausencia de una fila de stock como cantidad cero. Stock ausente, cero, insuficiente o reservado responden `422` con `Insufficient available stock.`, sin UUID internos en el mensaje y sin persistir filas cero ni cambios parciales. La guarda de autenticación se ejecuta al inicio del writer, antes de alcance, repetición o escritura, y produce `401` con el desafío Bearer.
+
+El enlace de `Location` conserva el permiso `inventory.read` y el alcance del detalle, incluidas ambas bodegas en transferencias. Crear un movimiento con permiso de escritura no concede permiso de lectura adicional. Este ajuste de estados se incorpora antes de implementar los formularios del frontend.
