@@ -39,7 +39,7 @@ public sealed class MovementLinesValidatorTests
         Assert.False(new CreateEntryCommandValidator().Validate(new CreateEntryCommand(warehouse, lines, IdempotencyKey: key)).IsValid);
         Assert.False(new CreateExitCommandValidator().Validate(new CreateExitCommand(warehouse, lines, IdempotencyKey: key)).IsValid);
         Assert.False(new CreateTransferCommandValidator().Validate(new CreateTransferCommand(warehouse, Guid.NewGuid(), lines, IdempotencyKey: key)).IsValid);
-        Assert.False(new CreateAdjustmentCommandValidator().Validate(new CreateAdjustmentCommand(warehouse, lines, "Count", key)).IsValid);
+        Assert.False(new CreateAdjustmentCommandValidator().Validate(new CreateAdjustmentCommand(warehouse, lines, "Physical count", key)).IsValid);
     }
 
     [Fact]
@@ -51,6 +51,6 @@ public sealed class MovementLinesValidatorTests
         Assert.True(new CreateEntryCommandValidator().Validate(new CreateEntryCommand(warehouse, lines, IdempotencyKey: key)).IsValid);
         Assert.True(new CreateExitCommandValidator().Validate(new CreateExitCommand(warehouse, lines, IdempotencyKey: key)).IsValid);
         Assert.True(new CreateTransferCommandValidator().Validate(new CreateTransferCommand(warehouse, Guid.NewGuid(), lines, IdempotencyKey: key)).IsValid);
-        Assert.True(new CreateAdjustmentCommandValidator().Validate(new CreateAdjustmentCommand(warehouse, lines, "Count", key)).IsValid);
+        Assert.True(new CreateAdjustmentCommandValidator().Validate(new CreateAdjustmentCommand(warehouse, lines, "Physical count", key)).IsValid);
     }
 }

@@ -1,5 +1,6 @@
 using Inventory.Application.Common.Abstractions;
 using Inventory.Persistence.Interceptors;
+using Inventory.Persistence.Inventory;
 using Inventory.Persistence.Queries;
 using Inventory.Persistence.Seed;
 using Microsoft.EntityFrameworkCore;
@@ -24,6 +25,7 @@ public static class DependencyInjection
 
         services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<AppDbContext>());
         services.AddScoped<IKardexReader, PostgresKardexReader>();
+        services.AddScoped<IMovementNumberGenerator, SequenceMovementNumberGenerator>();
         services.TryAddSingleton(new AdminSeedSettings());
         services.AddScoped<DatabaseSeeder>();
 

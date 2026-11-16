@@ -28,17 +28,16 @@ public sealed class GetAuditLogsQueryValidator : PagedQueryValidator<GetAuditLog
     }
 }
 
-public sealed class GetAuditLogsQueryHandler(IApplicationDbContext db)
+public sealed class GetAuditLogsQueryHandler(IApplicationDbContext db, IDateTimeProvider clock)
     : IRequestHandler<GetAuditLogsQuery, PagedResult<AuditLogDto>>
 {
     public async Task<PagedResult<AuditLogDto>> Handle(GetAuditLogsQuery request, CancellationToken ct)
     {
-        var query = db.AuditLogs.AsNoTracking();
+        var range = QueryDateRange.Resolve(request, clock.UtcNow);
+        var query = db.AuditLogs.AsNoTracking().Where(a => a.TimestampUtc >= range.FromUtc && a.TimestampUtc <= range.ToUtc);
         if (request.UserId is { } user) query = query.Where(a => a.UserId == user);
         if (!string.IsNullOrWhiteSpace(request.Entity)) query = query.Where(a => a.Entity == request.Entity.Trim());
         if (request.Action is { } action) query = query.Where(a => a.Action == action);
-        if (request.FromUtc is { } from) query = query.Where(a => a.TimestampUtc >= from);
-        if (request.ToUtc is { } to) query = query.Where(a => a.TimestampUtc <= to);
         var page = await query.OrderByDescending(a => a.TimestampUtc).ThenByDescending(a => a.Id)
             .ToPageAsync(request.Page, request.PageSize, ct);
         return new PagedResult<AuditLogDto>(page.Items.Select(ToDto).ToList(), page.Page, page.PageSize, page.TotalCount);

@@ -33,16 +33,34 @@ public static class QueryValidation
         validator.RuleFor(q => q.ToUtc).Must(IsUtc).WithMessage("Use an ISO 8601 UTC timestamp with Z.");
         validator.RuleFor(q => q).Must(q => q.FromUtc is null || q.ToUtc is null || q.FromUtc <= q.ToUtc)
             .WithMessage("FromUtc must not be later than ToUtc.");
+        validator.RuleFor(q => q).Must(q => q.FromUtc is null || q.ToUtc is null
+                || q.ToUtc.Value - q.FromUtc.Value <= QueryDateRange.MaxSpan)
+            .WithMessage("Date ranges cannot exceed 366 days.");
     }
 
     private static bool IsUtc(DateTime? value) => value is null || value.Value.Kind == DateTimeKind.Utc;
+}
+
+/// <summary>Inclusive bounded query window. Ledger readers still use older rows for opening balances.</summary>
+public sealed record QueryDateRange(DateTime FromUtc, DateTime ToUtc)
+{
+    public static readonly TimeSpan MaxSpan = TimeSpan.FromDays(366);
+
+    public static QueryDateRange Resolve(IDateRangeQuery request, DateTime nowUtc)
+    {
+        var to = request.ToUtc ?? (request.FromUtc is { } start
+            ? new DateTime(Math.Min(DateTime.MaxValue.Ticks, start.Ticks + MaxSpan.Ticks), DateTimeKind.Utc)
+            : nowUtc);
+        var from = request.FromUtc ?? new DateTime(Math.Max(DateTime.MinValue.Ticks, to.Ticks - MaxSpan.Ticks), DateTimeKind.Utc);
+        return new(from, to);
+    }
 }
 
 public static class QueryPaging
 {
     public const int DefaultPageSize = 20;
     public const int MaxPageSize = 200;
-    public const int MaxPage = int.MaxValue / MaxPageSize;
+    public const int MaxPage = 1000;
 
     public static int Offset(int page, int pageSize) => checked((page - 1) * pageSize);
 

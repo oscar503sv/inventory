@@ -335,7 +335,7 @@ public sealed class InventoryIntegrityTests(PostgresApiFixture fixture) : IClass
         var adjustment = await Send(client, "adjustments", Request("adjustments", data, Guid.NewGuid(), [new(data.Product, 50)]));
         var exit = await Send(client, "exits", Request("exits", data, Guid.NewGuid(), [new(data.Product, 10)]));
         Assert.True(entry.CreatedAtUtc > adjustment.CreatedAtUtc && adjustment.CreatedAtUtc > exit.CreatedAtUtc);
-        await AssertBalances(client, data, 40, null, 3);
+        await AssertBalances(client, data, 40, null, 3, entry.CreatedAtUtc);
     }
 
     [Theory]
@@ -459,16 +459,17 @@ public sealed class InventoryIntegrityTests(PostgresApiFixture fixture) : IClass
         return (await response.Content.ReadFromJsonAsync<MovementDto>())!;
     }
 
-    private async Task AssertBalances(HttpClient client, Data data, decimal source, decimal? destination, int movements)
+    private async Task AssertBalances(HttpClient client, Data data, decimal source, decimal? destination, int movements, DateTime? toUtc = null)
     {
         var stocks = (await client.GetFromJsonAsync<StockDto[]>($"/api/v1/inventory/stock?productId={data.Product}"))!;
         Assert.Equal(destination.HasValue ? 2 : 1, stocks.Length);
         Assert.Equal(source, stocks.Single(s => s.WarehouseId == data.Source).Quantity);
         if (destination.HasValue) Assert.Equal(destination.Value, stocks.Single(s => s.WarehouseId == data.Destination).Quantity);
+        var dateFilter = toUtc is { } upper ? "&toUtc=" + Uri.EscapeDataString(upper.ToString("O")) : "";
         foreach (var stock in stocks)
         {
             var ledger = (await client.GetFromJsonAsync<KardexEntryDto[]>(
-                $"/api/v1/inventory/kardex?productId={data.Product}&warehouseId={stock.WarehouseId}"))!;
+                $"/api/v1/inventory/kardex?productId={data.Product}&warehouseId={stock.WarehouseId}{dateFilter}"))!;
             Assert.Equal(stock.Quantity, ledger.Last().RunningBalance);
             Assert.Equal(stock.Quantity, ledger.Sum(l => l.Quantity));
             Assert.All(ledger, l => Assert.True(l.RunningBalance >= 0));

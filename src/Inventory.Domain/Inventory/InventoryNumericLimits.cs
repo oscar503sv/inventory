@@ -6,4 +6,5 @@ public static class InventoryNumericLimits
     public const int Scale = 4;
     public const decimal MaxStockQuantity = 99999999999999.9999m;
     public const int MaxNotesLength = 1024;
+    public const int MinAdjustmentJustificationLength = 10;
 }
