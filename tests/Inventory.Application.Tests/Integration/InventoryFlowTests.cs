@@ -46,10 +46,12 @@ public class InventoryFlowTests
         var numbers = new SequentialMovementNumberGenerator();
         var perms = new AllowAllPermissionChecker();
 
+        var writer = new InventoryMovementWriter(db, user, clock, numbers, perms,
+            [new EntryStockStrategy(), new ExitStockStrategy(), new TransferStockStrategy(), new AdjustmentStockStrategy()]);
         return (
-            new CreateEntryCommandHandler(db, user, clock, numbers, perms),
-            new CreateExitCommandHandler(db, user, clock, numbers, perms),
-            new CreateTransferCommandHandler(db, user, clock, numbers, perms),
+            new CreateEntryCommandHandler(writer),
+            new CreateExitCommandHandler(writer),
+            new CreateTransferCommandHandler(writer),
             new GetKardexQueryHandler(db, perms),
             new GetStockQueryHandler(db, perms));
     }

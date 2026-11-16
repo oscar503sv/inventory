@@ -1,6 +1,7 @@
 using FluentValidation;
 using Inventory.Application.Common.Abstractions;
 using Inventory.Application.Common.Exceptions;
+using Inventory.Application.Common.Validation;
 using Inventory.Domain.Identity;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -15,15 +16,16 @@ public sealed record CreateUserCommand(
     string Password,
     IReadOnlyList<Guid> RoleIds,
     bool HasAllWarehousesAccess,
-    IReadOnlyList<Guid> WarehouseScopeIds) : IRequest<UserDto>;
+    IReadOnlyList<Guid> WarehouseScopeIds) : IRequest<UserDto>, IUserProfileInput;
 
 public sealed class CreateUserCommandValidator : AbstractValidator<CreateUserCommand>
 {
     public CreateUserCommandValidator()
     {
-        RuleFor(x => x.Email).NotEmpty().EmailAddress();
-        RuleFor(x => x.UserName).NotEmpty().MaximumLength(128);
-        RuleFor(x => x.Password).NotEmpty().MinimumLength(8);
+        Include(new UserProfileValidator<CreateUserCommand>());
+        Include(new WarehouseScopeValidator<CreateUserCommand>(x => x.WarehouseScopeIds, x => x.HasAllWarehousesAccess));
+        RuleFor(x => x.Password).NotEmpty().MinimumLength(IdentityInputLimits.MinimumPasswordLength)
+            .SetValidator(new PasswordValidator());
     }
 }
 

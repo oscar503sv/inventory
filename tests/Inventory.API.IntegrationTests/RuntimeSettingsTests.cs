@@ -67,6 +67,22 @@ public sealed class RuntimeSettingsTests
         Assert.Throws<InvalidOperationException>(() => Load(config));
     }
 
+    [Fact]
+    public void Bootstrap_passwords_respect_the_login_byte_limit()
+    {
+        foreach (var password in new[] { new string('a', 73), new string('a', 129), new string('é', 37) })
+        {
+            var config = Defaults();
+            config["BootstrapAdmin:Email"] = "owner@example.com";
+            config["BootstrapAdmin:Password"] = password;
+            Assert.Throws<InvalidOperationException>(() => Load(config));
+        }
+        var valid = Defaults();
+        valid["BootstrapAdmin:Email"] = "owner@example.com";
+        valid["BootstrapAdmin:Password"] = new string('é', 36);
+        Assert.NotNull(Load(valid).Admin.Password);
+    }
+
     private static Dictionary<string, string?> Defaults() => new()
     {
         ["ConnectionStrings:Postgres"] = "Host=localhost;Database=inventory;Username=inventory;Password=private-password",

@@ -2,6 +2,7 @@ using System.Reflection;
 using FluentValidation;
 using Inventory.Application.Common.Behaviors;
 using Inventory.Application.Features.Users;
+using Inventory.Application.Features.Inventory;
 using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -17,6 +18,11 @@ public static class DependencyInjection
         services.AddValidatorsFromAssembly(assembly);
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
         services.AddScoped<UserAccessAuthorization>();
+        services.AddScoped<InventoryMovementWriter>();
+        services.AddSingleton<IInventoryMovementStrategy, EntryStockStrategy>();
+        services.AddSingleton<IInventoryMovementStrategy, ExitStockStrategy>();
+        services.AddSingleton<IInventoryMovementStrategy, TransferStockStrategy>();
+        services.AddSingleton<IInventoryMovementStrategy, AdjustmentStockStrategy>();
 
         return services;
     }

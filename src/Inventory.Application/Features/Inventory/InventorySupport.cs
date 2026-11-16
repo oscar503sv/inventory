@@ -6,6 +6,8 @@ using System.Text.Json.Serialization;
 using Inventory.Application.Common.Abstractions;
 using Inventory.Application.Common.Exceptions;
 using Inventory.Domain.Inventory;
+using Inventory.Domain.Common;
+using Inventory.Domain.Warehouses;
 using Microsoft.EntityFrameworkCore;
 using Shared.Contracts.Inventory;
 
@@ -17,6 +19,7 @@ public sealed record MovementLineInput(Guid ProductId, decimal Quantity, decimal
 public interface IInventoryCommand
 {
     Guid IdempotencyKey { get; }
+    IReadOnlyList<MovementLineInput> Lines { get; }
 }
 
 internal static class InventorySupport
@@ -87,11 +90,14 @@ internal static class InventorySupport
         => await db.Stocks.FirstOrDefaultAsync(s => s.ProductId == productId && s.WarehouseId == warehouseId, ct)
            ?? throw new ConflictException($"No stock exists for product '{productId}' in warehouse '{warehouseId}'.");
 
-    public static async Task EnsureWarehouseExistsAsync(
+    public static async Task EnsureWarehouseActiveAsync(
         IApplicationDbContext db, Guid warehouseId, CancellationToken ct)
     {
-        if (!await db.Warehouses.AnyAsync(w => w.Id == warehouseId, ct))
-            throw NotFoundException.For("Warehouse", warehouseId);
+        var status = await db.Warehouses.Where(w => w.Id == warehouseId)
+            .Select(w => (WarehouseStatus?)w.Status).SingleOrDefaultAsync(ct);
+        if (status is null) throw NotFoundException.For("Warehouse", warehouseId);
+        if (status != WarehouseStatus.Active)
+            throw new DomainException("Inventory movements require an active warehouse.");
     }
 
     /// <summary>Loads the minimum-stock thresholds for the given products, validating they all exist.</summary>
@@ -101,7 +107,7 @@ internal static class InventorySupport
         var ids = productIds.Distinct().ToList();
         var products = await db.Products
             .Where(p => ids.Contains(p.Id))
-            .Select(p => new { p.Id, p.MinimumStock })
+            .Select(p => new { p.Id, p.MinimumStock, p.IsActive })
             .ToListAsync(ct);
 
         if (products.Count != ids.Count)
@@ -109,6 +115,9 @@ internal static class InventorySupport
             var missing = ids.Except(products.Select(p => p.Id)).First();
             throw NotFoundException.For("Product", missing);
         }
+
+        if (products.Any(p => !p.IsActive))
+            throw new DomainException("Inventory movements require active products.");
 
         return products.ToDictionary(p => p.Id, p => p.MinimumStock);
     }
