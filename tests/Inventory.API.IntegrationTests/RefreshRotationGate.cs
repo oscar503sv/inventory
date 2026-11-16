@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace Inventory.API.IntegrationTests;
 
-// Both requests must reach the conditional UPDATE before either can consume the token.
+// Both requests finish reading the token before either takes the session lock.
 public sealed class RefreshRotationGate : DbCommandInterceptor
 {
     private int _remaining;
@@ -20,7 +20,7 @@ public sealed class RefreshRotationGate : DbCommandInterceptor
         CancellationToken cancellationToken = default)
     {
         if (Volatile.Read(ref _remaining) == 0
-            || !command.CommandText.StartsWith("UPDATE refresh_tokens", StringComparison.Ordinal))
+            || !command.CommandText.Contains("hashtextextended", StringComparison.Ordinal))
             return result;
 
         var ready = _ready;

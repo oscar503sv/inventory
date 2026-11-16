@@ -34,6 +34,7 @@ public sealed class ExceptionHandlingMiddleware
         {
             ValidationException => (StatusCodes.Status400BadRequest, "Validation failed"),
             NotFoundException => (StatusCodes.Status404NotFound, "Resource not found"),
+            UnauthorizedException => (StatusCodes.Status401Unauthorized, "Unauthorized"),
             ForbiddenAccessException => (StatusCodes.Status403Forbidden, "Forbidden"),
             ConflictException => (StatusCodes.Status409Conflict, "Conflict"),
             DomainException => (StatusCodes.Status422UnprocessableEntity, "Business rule violation"),

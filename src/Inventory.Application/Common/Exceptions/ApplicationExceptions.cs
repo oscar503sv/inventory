@@ -31,3 +31,6 @@ public sealed class ValidationException : Exception
         : base("One or more validation errors occurred.")
         => Errors = errors;
 }
+
+/// <summary>The supplied credentials no longer establish a valid session.</summary>
+public sealed class UnauthorizedException(string message) : Exception(message);

@@ -1,6 +1,7 @@
 using FluentValidation;
 using Inventory.Application.Common.Abstractions;
 using Inventory.Application.Common.Exceptions;
+using Inventory.Domain.Audit;
 using Inventory.Domain.Identity;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -21,17 +22,20 @@ public sealed class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCom
     private readonly IJwtTokenGenerator _jwt;
     private readonly IRefreshTokenService _refreshTokens;
     private readonly IDateTimeProvider _clock;
+    private readonly ICurrentUser _currentUser;
 
     public RefreshTokenCommandHandler(
         IApplicationDbContext db,
         IJwtTokenGenerator jwt,
         IRefreshTokenService refreshTokens,
-        IDateTimeProvider clock)
+        IDateTimeProvider clock,
+        ICurrentUser currentUser)
     {
         _db = db;
         _jwt = jwt;
         _refreshTokens = refreshTokens;
         _clock = clock;
+        _currentUser = currentUser;
     }
 
     public async Task<AuthResultDto> Handle(RefreshTokenCommand request, CancellationToken cancellationToken)
@@ -40,6 +44,7 @@ public sealed class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCom
         var incomingHash = _refreshTokens.Hash(request.RefreshToken);
 
         var stored = await _db.RefreshTokens.AsNoTracking().FirstOrDefaultAsync(t => t.TokenHash == incomingHash, cancellationToken);
+        if (stored is not null) await RejectReuseAsync(stored, now, cancellationToken);
         if (stored is null || !stored.IsActive(now))
             throw new ForbiddenAccessException("Invalid or expired refresh token.");
 
@@ -61,9 +66,28 @@ public sealed class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCom
 
         var accessToken = _jwt.GenerateAccessToken(user.Id, user.Email, roleNames);
         if (!await _db.TryRotateRefreshTokenAsync(stored.Id, replacement, now, cancellationToken))
+        {
+            var current = await _db.RefreshTokens.AsNoTracking().SingleAsync(t => t.Id == stored.Id, cancellationToken);
+            await RejectReuseAsync(current, now, cancellationToken);
             throw new ForbiddenAccessException("Invalid or expired refresh token.");
+        }
 
         return new AuthResultDto(
             accessToken, token, _jwt.GetAccessTokenExpiry(now), user.Id, user.Email, roleNames);
+    }
+
+    private async Task RejectReuseAsync(RefreshToken stored, DateTime now, CancellationToken ct)
+    {
+        if (stored.ReplacedByTokenHash is null) return;
+
+        await _db.ExecuteSessionUpdateAsync(stored.UserId, async () =>
+        {
+            await SessionRevocation.RevokeAsync(_db, stored.UserId, now, ct);
+            _db.AuditLogs.Add(new AuditLog(stored.UserId, now, "Session", "RefreshTokenReuseDetected",
+                null, null, _currentUser.IpAddress, _currentUser.CorrelationId));
+            await _db.SaveChangesAsync(ct);
+        }, ct);
+        // Throw after commit so the rejection cannot roll back revocation or its audit record.
+        throw new UnauthorizedException("Invalid or expired refresh token.");
     }
 }
