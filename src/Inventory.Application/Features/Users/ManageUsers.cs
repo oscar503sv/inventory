@@ -1,6 +1,7 @@
 using FluentValidation;
 using Inventory.Application.Common.Abstractions;
 using Inventory.Application.Common.Exceptions;
+using Inventory.Application.Common.Validation;
 using Inventory.Application.Features.Auth;
 using Inventory.Domain.Identity;
 using MediatR;
@@ -9,15 +10,13 @@ using Shared.Authorization;
 
 namespace Inventory.Application.Features.Users;
 
-public sealed record UpdateUserCommand(Guid UserId, string Email, string UserName, string FullName, bool IsActive) : IRequest;
+public sealed record UpdateUserCommand(Guid UserId, string Email, string UserName, string FullName, bool IsActive) : IRequest, IUserProfileInput;
 
 public sealed class UpdateUserValidator : AbstractValidator<UpdateUserCommand>
 {
     public UpdateUserValidator()
     {
-        RuleFor(x => x.Email).NotEmpty().EmailAddress().MaximumLength(256);
-        RuleFor(x => x.UserName).NotEmpty().MaximumLength(128);
-        RuleFor(x => x.FullName).NotNull().MaximumLength(256);
+        Include(new UserProfileValidator<UpdateUserCommand>());
     }
 }
 
@@ -67,7 +66,7 @@ public sealed class UpdateUserAccessValidator : AbstractValidator<UpdateUserAcce
     public UpdateUserAccessValidator()
     {
         RuleFor(x => x.RoleIds).NotNull();
-        RuleFor(x => x.WarehouseIds).NotNull();
+        Include(new WarehouseScopeValidator<UpdateUserAccessCommand>(x => x.WarehouseIds, x => x.HasAllWarehousesAccess));
         RuleFor(x => x.Overrides).NotNull();
         RuleForEach(x => x.Overrides).NotNull().ChildRules(o =>
         {
@@ -76,8 +75,6 @@ public sealed class UpdateUserAccessValidator : AbstractValidator<UpdateUserAcce
         });
         RuleFor(x => x.Overrides).Must(x => x is null || x.All(o => o is not null) && x.Select(o => o.PermissionId).Distinct().Count() == x.Count)
             .WithMessage("Permission overrides must be unique.");
-        RuleFor(x => x).Must(x => !x.HasAllWarehousesAccess || x.WarehouseIds is not { Count: > 0 })
-            .WithMessage("Global access cannot include individual warehouse scopes.");
     }
 }
 

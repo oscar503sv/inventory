@@ -1,6 +1,7 @@
 using FluentValidation;
 using Inventory.Application.Common.Abstractions;
 using Inventory.Application.Common.Exceptions;
+using Inventory.Application.Common.Validation;
 using Inventory.Domain.Identity;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -14,8 +15,8 @@ public sealed class LoginCommandValidator : AbstractValidator<LoginCommand>
 {
     public LoginCommandValidator()
     {
-        RuleFor(x => x.Email).NotEmpty().EmailAddress();
-        RuleFor(x => x.Password).NotEmpty();
+        RuleFor(x => x.Email).NotEmpty().EmailAddress().MaximumLength(IdentityInputLimits.EmailLength);
+        RuleFor(x => x.Password).NotEmpty().SetValidator(new PasswordValidator());
     }
 }
 

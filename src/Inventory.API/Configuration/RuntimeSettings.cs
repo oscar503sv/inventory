@@ -1,4 +1,5 @@
 using System.Text;
+using Inventory.Application.Common.Validation;
 using Inventory.Infrastructure.Security;
 using Inventory.Persistence.Seed;
 using Npgsql;
@@ -50,8 +51,9 @@ public sealed record RuntimeSettings(string Postgres, JwtOptions Jwt, bool Initi
             return new AdminSeedSettings(DatabaseSeeder.DefaultAdminEmail, DatabaseSeeder.DefaultAdminPassword);
         if (email is null && password is null) return new AdminSeedSettings();
         if (string.IsNullOrWhiteSpace(email) || !email.Contains('@') || string.IsNullOrWhiteSpace(password)
-            || password.Length < 12 || (!environment.IsDevelopment() && password == DatabaseSeeder.DefaultAdminPassword))
-            throw new InvalidOperationException("Configure BootstrapAdmin__Email and BootstrapAdmin__Password together; use a private password of at least 12 characters.");
+            || password.Length < 12 || password.Length > IdentityInputLimits.PasswordLength
+            || Encoding.UTF8.GetByteCount(password) > IdentityInputLimits.PasswordUtf8Bytes || (!environment.IsDevelopment() && password == DatabaseSeeder.DefaultAdminPassword))
+            throw new InvalidOperationException("Configure BootstrapAdmin__Email and BootstrapAdmin__Password together; use a private password of at least 12 characters and at most 72 UTF-8 bytes.");
         return new AdminSeedSettings(email, password);
     }
 }

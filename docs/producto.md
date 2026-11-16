@@ -159,3 +159,11 @@ La estrategia de pruebas incluye:
 | Extensibilidad | Agregar módulos sin modificar los existentes siempre que sea posible. |
 
 Estos son objetivos pendientes de verificación; esta consolidación documental no certifica su cumplimiento.
+
+## Movimientos sobre entidades activas (OZK-64)
+
+Una entrada, salida, transferencia o ajuste nuevo requiere productos activos y bodegas con estado `Active`. Una transferencia exige que tanto origen como destino estén activos. Operar sobre una entidad existente pero inactiva devuelve `422`; una referencia inexistente conserva `404`, y se comprueban antes los permisos y el alcance.
+
+No se permiten salidas de una bodega inactiva como excepción para vaciarla. Debe reactivarse temporalmente, realizar las salidas o transferencias con productos activos y volver a desactivarse cuando corresponda. Esta regla evita que una bodega cerrada siga operando por una ruta especial.
+
+Una repetición con la misma clave idempotente y el mismo contenido devuelve el movimiento ya guardado, incluso si después se desactivó el producto o la bodega: no crea movimientos ni modifica existencias. Sigue exigiendo los permisos y el alcance del solicitante. Una clave reutilizada con contenido distinto conserva su respuesta de conflicto.

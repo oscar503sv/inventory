@@ -287,7 +287,7 @@ public sealed class UserAdministrationTests(PostgresApiFixture fixture) : IClass
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Creation_rejects_unknown_warehouse_even_with_global_access(bool global)
+    public async Task Creation_rejects_unknown_warehouse_or_conflicting_global_scope(bool global)
     {
         var (admin, _) = await Login();
         using var lifetime = admin;
@@ -301,7 +301,7 @@ public sealed class UserAdministrationTests(PostgresApiFixture fixture) : IClass
             hasAllWarehousesAccess = global,
             warehouseScopeIds = new[] { Guid.NewGuid() }
         });
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(global ? HttpStatusCode.BadRequest : HttpStatusCode.NotFound, response.StatusCode);
     }
 
     [Theory]
