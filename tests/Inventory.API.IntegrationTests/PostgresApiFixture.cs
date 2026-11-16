@@ -64,6 +64,9 @@ public sealed class PostgresApiFixture : IAsyncLifetime
         {
             builder.UseEnvironment("Testing");
             builder.UseSetting("ConnectionStrings:Postgres", connection);
+            // Broad regression suites share an IP/account; dedicated rate limit tests override these quotas.
+            builder.UseSetting("AuthRateLimit:IpPermitLimit", "100000");
+            builder.UseSetting("AuthRateLimit:AccountPermitLimit", "100000");
             builder.UseSetting("Jwt:SigningKey", Convert.ToBase64String(RandomNumberGenerator.GetBytes(48)));
             builder.ConfigureServices(services =>
             {
