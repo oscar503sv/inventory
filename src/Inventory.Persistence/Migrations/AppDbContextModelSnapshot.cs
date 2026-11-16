@@ -461,6 +461,8 @@ namespace Inventory.Persistence.Migrations
 
                     b.HasIndex("CreatedAtUtc");
 
+                    b.HasIndex("DestinationWarehouseId");
+
                     b.HasIndex("LedgerSequence")
                         .IsUnique();
 
@@ -501,7 +503,12 @@ namespace Inventory.Persistence.Migrations
 
                     b.HasIndex("ProductId");
 
-                    b.ToTable("inventory_movement_lines", (string)null);
+                    b.ToTable("inventory_movement_lines", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_movement_lines_Quantity", "\"Quantity\" > 0");
+
+                            t.HasCheckConstraint("CK_inventory_movement_lines_UnitCost", "\"UnitCost\" >= 0");
+                        });
                 });
 
             modelBuilder.Entity("Inventory.Domain.Inventory.Stock", b =>
@@ -530,10 +537,17 @@ namespace Inventory.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("WarehouseId");
+
                     b.HasIndex("ProductId", "WarehouseId")
                         .IsUnique();
 
-                    b.ToTable("stocks", (string)null);
+                    b.ToTable("stocks", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_stocks_Quantity", "\"Quantity\" >= 0");
+
+                            t.HasCheckConstraint("CK_stocks_ReservedQuantity", "\"ReservedQuantity\" >= 0 AND \"ReservedQuantity\" <= \"Quantity\"");
+                        });
                 });
 
             modelBuilder.Entity("Inventory.Domain.Warehouses.Warehouse", b =>
@@ -627,12 +641,47 @@ namespace Inventory.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Inventory.Domain.Inventory.InventoryMovement", b =>
+                {
+                    b.HasOne("Inventory.Domain.Warehouses.Warehouse", null)
+                        .WithMany()
+                        .HasForeignKey("DestinationWarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Inventory.Domain.Warehouses.Warehouse", null)
+                        .WithMany()
+                        .HasForeignKey("WarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Inventory.Domain.Inventory.InventoryMovementLine", b =>
                 {
                     b.HasOne("Inventory.Domain.Inventory.InventoryMovement", null)
                         .WithMany("Lines")
                         .HasForeignKey("MovementId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Inventory.Domain.Catalog.Product", null)
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Inventory.Domain.Inventory.Stock", b =>
+                {
+                    b.HasOne("Inventory.Domain.Catalog.Product", null)
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Inventory.Domain.Warehouses.Warehouse", null)
+                        .WithMany()
+                        .HasForeignKey("WarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
